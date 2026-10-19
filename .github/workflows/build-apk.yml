@@ -1,0 +1,61 @@
+name: Build Mobile IDE APK
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android platform 35 & build-tools
+        run: sdkmanager "platforms;android-35" "build-tools;34.0.0" "platform-tools"
+
+      - name: Download aarch64 PRoot (Android build, talloc statically linked) into jniLibs
+        run: |
+          set -euo pipefail
+          JNI_DIR=app/src/main/jniLibs/arm64-v8a
+          mkdir -p "$JNI_DIR" /tmp/proot
+          curl -fL --retry 5 --retry-delay 3 \
+            -o /tmp/proot.tar.gz \
+            https://github.com/green-green-avk/build-proot-android/raw/master/packages/proot-android-aarch64.tar.gz
+          tar -xzf /tmp/proot.tar.gz -C /tmp/proot
+          # proot 主程序 -> libproot.so
+          cp /tmp/proot/root/bin/proot              "$JNI_DIR/libproot.so"
+          # proot loader 必须同样位于 nativeLibraryDir（Android 10+ 禁止 exec 应用数据目录中的文件）
+          cp /tmp/proot/root/libexec/proot/loader   "$JNI_DIR/libproot-loader.so"
+          cp /tmp/proot/root/libexec/proot/loader32 "$JNI_DIR/libproot-loader32.so"
+          chmod 755 "$JNI_DIR"/*.so
+          file "$JNI_DIR"/*.so
+          ls -la "$JNI_DIR"
+
+      - name: Set up Gradle 8.7 (no wrapper jar)
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+
+      - name: Build debug APK
+        run: gradle assembleDebug --no-daemon --stacktrace
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: MobileIDE-debug-apk
+          path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error

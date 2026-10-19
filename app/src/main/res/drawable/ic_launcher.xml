@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- 圆角深色背景 -->
+    <path
+        android:fillColor="#1E1F22"
+        android:pathData="M24,6h60a18,18 0,0 1,18 18v60a18,18 0,0 1,-18 18h-60a18,18 0,0 1,-18 -18v-60a18,18 0,0 1,18 -18z" />
+
+    <!-- Ubuntu 橙色圆环 -->
+    <path
+        android:strokeColor="#E95420"
+        android:strokeWidth="5"
+        android:fillColor="#00000000"
+        android:pathData="M54,20a34,34 0,1 1,0 68a34,34 0,1 1,0 -68z" />
+
+    <!-- < -->
+    <path
+        android:strokeColor="#6BCB77"
+        android:strokeWidth="7"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:fillColor="#00000000"
+        android:pathData="M43,40L30,54L43,68" />
+
+    <!-- > -->
+    <path
+        android:strokeColor="#6BCB77"
+        android:strokeWidth="7"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:fillColor="#00000000"
+        android:pathData="M65,40L78,54L65,68" />
+
+    <!-- / -->
+    <path
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="6"
+        android:strokeLineCap="round"
+        android:fillColor="#00000000"
+        android:pathData="M59,36L49,72" />
+</vector>
