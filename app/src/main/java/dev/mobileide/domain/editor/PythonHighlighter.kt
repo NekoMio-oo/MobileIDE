@@ -27,7 +27,8 @@ object PythonHighlighter {
         fun onSpan(line: Int, column: Int, kind: PythonTokenKind?)
     }
 
-    private val KEYWORDS = setOf(
+    /** Also used by the offline completion source. */
+    val KEYWORDS = setOf(
         "False", "None", "True", "and", "as", "assert", "async", "await",
         "break", "class", "continue", "def", "del", "elif", "else", "except",
         "finally", "for", "from", "global", "if", "import", "in", "is",
@@ -35,7 +36,8 @@ object PythonHighlighter {
         "while", "with", "yield", "match", "case"
     )
 
-    private val BUILTINS = setOf(
+    /** Built-in functions, types and exceptions; also used by offline completion. */
+    val BUILTINS = setOf(
         "abs", "all", "any", "ascii", "bin", "bool", "breakpoint", "bytearray",
         "bytes", "callable", "chr", "classmethod", "compile", "complex",
         "delattr", "dict", "dir", "divmod", "enumerate", "eval", "exec",

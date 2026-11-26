@@ -23,7 +23,7 @@ LD_PRELOAD=/tmp/shim3.so \
 `LD_PRELOAD` 仅用于绕过本机沙箱对 `utimes` 的 EPERM，不是项目依赖；CI 上不需要。
 `local.properties` 指向 `~/tools/android-sdk`，不入库。
 `org.gradle.caching=false`：资源目录改名后曾复用过期产物导致 aapt 报资源缺失。
-单测：`./gradlew :app:testDebugUnitTest`（当前 230 个 JVM 测试）。
+单测：`./gradlew :app:testDebugUnitTest`（当前 237 个 JVM 测试）。
 
 ## 代码结构约定
 - 分层：`data/local|repository`、`domain/model|repository|template|validation`、`core/filesystem`、`core/storage`、`feature/*`、`navigation`、`di/AppContainer`（手写 DI，未引 Hilt）。
@@ -60,6 +60,7 @@ LD_PRELOAD=/tmp/shim3.so \
 
 ## 状态
 - 已实现：创建项目（11 类模板，固定根目录）、NativeFileSystem 打开目录、Projects 搜索/重命名/移除/删文件、Home 真实最近项目、访问失效提示、旧 SAF 项目重新定位、应用内文件夹选择器、完整项目文件管理器（浏览/面包屑/搜索+扩展名筛选/新建文件与文件夹/重命名/删除/详情/权限门禁/二进制拦截）、Sora 代码编辑器（打开/编辑/行号/保存/撤销重做/查找/快捷输入/未保存确认）。
+- 补全：Python 另有 `domain/editor/PythonCompletion`（纯本地词法补全，关键字/builtins/本文件 def、class、import、赋值名，复用分词器屏蔽字符串与注释），`PythonLanguage.requireAutoComplete` 覆写后用 Sora `SimpleCompletionItem` 同步发布；**不依赖 pylsp/PRoot/Debian**，pylsp READY 时其语义结果由 `LspLanguage` 追加到同一弹窗。Go/Rust/HTML/CSS 仍无任何补全。
 - 高亮：C/C++/Java/Kotlin/JS/TS 走 Sora `JavaLanguage`；Python 走自研 `domain/editor/PythonHighlighter`（流式发射风格变化点）+ `feature/editor/components/PythonLanguage`，后者继承 Sora `SimpleAnalyzeManager<Unit>`（后台线程、请求 id 取消）、用 `MappedSpans.Builder` 建跨度；Go/Rust/HTML/CSS 为纯文本。坑：Sora 0.23.5 的 `analyze(StringBuilder, Delegate)` 返回 `Styles`；`Styles.finishBuilding()` 不能随便调（lineStyles 可能为 null）；`getIndentAdvance` 是**缩进增量**（CodeEditor 会加到当前行缩进上），返回绝对缩进会让回车翻倍；`textStyle` 参数名是 `foreground`；`EditorColorScheme` 在 `io.github.rosemoe.sora.widget.schemes` 包。
 - 运行环境（第七阶段）：`domain/runtime` + `data/runtime` + `feature/runtimes`。目录 `files/runtime`、`cache/runtime-downloads`、`cache/runtime-temp`、`files/runtime-config`；catalog 在 assets `runtime_catalog.properties`，设备可覆盖 `files/runtime-config/catalog.properties`。Linux 环境 = Debian 12 arm64 rootfs（LXC 快照，SHA256）+ Termux proot deb + libtalloc/libandroid-shmem；`ProotCommand` 用 `PROOT_LOADER`/`LD_LIBRARY_PATH` 执行。语言工具链用 apt 安装、`command -v` + `--version` 检测。执行器 `ProcessExecutor` 流式输出/超时/强杀。
 - 构建系统（第八阶段）：`domain/build` + `data/build` + `feature/build`。`BuildManager` 是唯一执行入口（全局单任务），命令一律 argv 经 `LinuxRuntime` + `ProcessExecutor`，项目根 bind 到 guest `/workspace`。配置 `.mobileide/build.properties`、任务 `.mobileide/tasks/*.properties`、完整日志 `.mobileide/logs/*.log`、产物 `build/<mode>/`。provider：C/C++（gcc/clang 探测）、Java（javac+jar）、Go（go.mod，linux/arm64 固定）、Rust（Cargo.toml，CARGO_TARGET_DIR）、TS（tsconfig 或显式源）；Kotlin/脚本语言明确未支持。
