@@ -37,11 +37,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
@@ -88,8 +84,7 @@ fun TerminalScreen(
     var showNewMenu by remember { mutableStateOf(false) }
     var showMoreMenu by remember { mutableStateOf(false) }
     var isFocused by remember { mutableStateOf(false) }
-    val focusRequester = remember { FocusRequester() }
-    val keyboard = LocalSoftwareKeyboardController.current
+    var inputView by remember { mutableStateOf<TerminalInputView?>(null) }
 
     Column(modifier = modifier.fillMaxSize().imePadding()) {
         TerminalTopBar(
@@ -238,8 +233,7 @@ fun TerminalScreen(
                     indication = null
                 ) {
                     if (activeUi?.info?.isRunning == true) {
-                        focusRequester.requestFocus()
-                        keyboard?.show()
+                        inputView?.focusForInput()
                     }
                 }
         ) {
@@ -309,7 +303,12 @@ fun TerminalScreen(
                 )
             }
             AndroidView(
-                factory = { context -> TerminalInputView(context) },
+                factory = { context ->
+                    TerminalInputView(context).also { view ->
+                        inputView = view
+                        view.setOnFocusChangeListener { _, focused -> isFocused = focused }
+                    }
+                },
                 update = { view ->
                     view.onText = { text -> viewModel.sendBytes(text.toByteArray(Charsets.UTF_8)) }
                     view.onBackspace = { count ->
@@ -332,8 +331,6 @@ fun TerminalScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(1.dp)
-                    .focusRequester(focusRequester)
-                    .onFocusChanged { isFocused = it.isFocused }
             )
         }
     }

@@ -8,6 +8,7 @@ import android.view.inputmethod.BaseInputConnection
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputConnection
 import android.view.inputmethod.InputConnectionWrapper
+import android.view.inputmethod.InputMethodManager
 import android.widget.EditText
 
 /**
@@ -37,6 +38,23 @@ class TerminalInputView(context: Context) : EditText(context) {
         imeOptions = EditorInfo.IME_ACTION_NONE or
             EditorInfo.IME_FLAG_NO_FULLSCREEN or
             EditorInfo.IME_FLAG_NO_EXTRACT_UI
+    }
+
+    /**
+     * Focuses the real EditText and asks the IME to show.
+     *
+     * Requesting focus on the AndroidView wrapper is not enough: the wrapper
+     * has no InputConnection, so the keyboard never appears (reported on
+     * ColorOS 17). Some OEM IMEs also ignore the first request, before the
+     * input connection is bound, hence the retry on the next frame.
+     */
+    fun focusForInput() {
+        requestFocus()
+        val manager = context.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
+        manager?.showSoftInput(this, InputMethodManager.SHOW_IMPLICIT)
+        post {
+            if (isFocused) manager?.showSoftInput(this, InputMethodManager.SHOW_IMPLICIT)
+        }
     }
 
     override fun onCreateInputConnection(outAttrs: EditorInfo): InputConnection {
