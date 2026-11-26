@@ -15,6 +15,7 @@ import dev.mobileide.domain.lsp.LspSessionInfo
 import dev.mobileide.domain.lsp.LspSettings
 import dev.mobileide.domain.lsp.LspTextEdit
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -254,12 +255,20 @@ class LspSessionManager(
 
     // ---- queries ----------------------------------------------------------
 
+    /**
+     * Completion for the buffer [text]. The position belongs to that text, so it
+     * is synchronized first: completion fires on the keystroke itself, before
+     * the debounced `didChange` would go out, and a server answering for the
+     * previous buffer returns nothing useful. Unchanged text sends nothing.
+     */
     suspend fun completion(
         projectId: Long,
         relativePath: String,
         line: Int,
-        column: Int
+        column: Int,
+        text: String
     ): List<LspCompletionItem> {
+        changeDocument(projectId, relativePath, text)
         val document = tracker.get(LspDocumentKey(projectId, relativePath)) ?: return emptyList()
         val session = readySession(projectId, document.serverId) ?: return emptyList()
         touch(projectId, document.serverId)
@@ -399,7 +408,8 @@ class LspSessionManager(
             return@withLock
         }
         restartAttempts[key] = 0
-        tracker.documentsFor(key.projectId, key.serverId).forEach { document ->
+        val documents = tracker.documentsFor(key.projectId, key.serverId)
+        documents.forEach { document ->
             session.didOpen(
                 document.uri,
                 document.languageId,
@@ -408,6 +418,21 @@ class LspSessionManager(
             )
         }
         onSessionsChanged()
+        warmUp(session, documents)
+    }
+
+    /**
+     * The first completion on a cold server pays for imports and indexing,
+     * which takes seconds on a phone. Pay it while the user is still reading the
+     * file instead of while they wait for a popup. The answer itself is dropped.
+     */
+    private fun warmUp(session: LspSession, documents: List<TrackedDocument>) {
+        if (!session.capabilities.completion) return
+        documents.take(WARM_UP_DOCUMENTS).forEach { document ->
+            scope.launch(Dispatchers.IO) {
+                session.completion(document.uri, 0, 0, WARM_UP_TIMEOUT_MS)
+            }
+        }
     }
 
     private suspend fun stopSession(key: Key) {
@@ -551,5 +576,7 @@ class LspSessionManager(
     private companion object {
         const val MAX_RESTART_ATTEMPTS = 2
         const val MAX_DIAGNOSTICS = 500
+        const val WARM_UP_DOCUMENTS = 2
+        const val WARM_UP_TIMEOUT_MS = 45_000L
     }
 }

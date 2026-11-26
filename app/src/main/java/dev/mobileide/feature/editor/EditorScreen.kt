@@ -417,10 +417,9 @@ fun EditorScreen(
                             } else {
                                 LspLanguage(
                                     delegate = language.toSoraLanguage(),
-                                    projectId = 0L,
                                     relativePath = path,
-                                    source = { _, relative, line, column ->
-                                        viewModel.lspCompletion(relative, line, column)
+                                    source = { relative, line, column, text, onResult ->
+                                        viewModel.lspCompletion(relative, line, column, text, onResult)
                                     }
                                 )
                             }

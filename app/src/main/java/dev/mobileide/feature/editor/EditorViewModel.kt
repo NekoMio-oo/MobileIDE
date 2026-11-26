@@ -1,12 +1,12 @@
 package dev.mobileide.feature.editor
 
 import android.app.Application
-import android.os.Looper
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.viewModelScope
 import dev.mobileide.data.editor.EditorRevealTarget
 import dev.mobileide.data.editor.EditorTabManager
+import dev.mobileide.data.lsp.LatestRequestRunner
 import dev.mobileide.di.container
 import dev.mobileide.domain.editor.EditorSnapshot
 import dev.mobileide.domain.editor.EditorTab
@@ -39,8 +39,6 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -60,6 +58,13 @@ class EditorViewModel(
     private val tabManager: EditorTabManager = application.container.editorTabManager
     private val revealRequests = application.container.editorRevealRequests
     private val lsp: LspRepository = application.container.lspRepository
+
+    /** One server completion at most in flight; the newest keystroke wins. */
+    private val completionRequests = LatestRequestRunner<List<LspCompletionItem>>(
+        scope = viewModelScope,
+        debounceMs = COMPLETION_DEBOUNCE_MS,
+        timeoutMs = COMPLETION_TIMEOUT_MS
+    )
 
     /** Documents announced to a server, so closing a tab also closes its document. */
     private var lspOpenPaths: Set<String> = emptySet()
@@ -826,18 +831,23 @@ class EditorViewModel(
         }
     }
 
-    /** Blocking call used by Sora's completion thread, never by the UI thread. */
+    /**
+     * Completion for Sora's completion thread. Called on every keystroke, so it
+     * returns at once: typing collapses into one debounced server request, a
+     * newer request cancels the older one, and [onResult] runs later on the
+     * main thread or never when the caret moved on or the server stayed silent.
+     */
     fun lspCompletion(
         relativePath: String,
         line: Int,
-        column: Int
-    ): List<LspCompletionItem> {
-        if (Looper.myLooper() == Looper.getMainLooper()) return emptyList()
-        return runBlocking {
-            withTimeoutOrNull(COMPLETION_TIMEOUT_MS) {
-                lsp.completion(projectId, relativePath, line, column)
-            }
-        }.orEmpty()
+        column: Int,
+        text: String,
+        onResult: (List<LspCompletionItem>) -> Unit
+    ) {
+        completionRequests.launch(
+            request = { lsp.completion(projectId, relativePath, line, column, text) },
+            onResult = onResult
+        )
     }
 
     suspend fun lspHover(line: Int, column: Int): LspHover? {
@@ -924,6 +934,8 @@ class EditorViewModel(
 
     private companion object {
         const val PERSIST_DEBOUNCE_MS = 600L
-        const val COMPLETION_TIMEOUT_MS = 1_500L
+        const val COMPLETION_DEBOUNCE_MS = 150L
+        // Hard cap above the session's own completion timeout.
+        const val COMPLETION_TIMEOUT_MS = 12_000L
     }
 }

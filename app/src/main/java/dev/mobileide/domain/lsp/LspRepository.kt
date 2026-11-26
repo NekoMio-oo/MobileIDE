@@ -75,11 +75,17 @@ interface LspRepository {
 
     // ---- queries ----------------------------------------------------------
 
+    /**
+     * Completion at a zero-based position. [text] is the buffer the position
+     * belongs to; it is synchronized before the request so the server never
+     * answers for text that has already changed.
+     */
     suspend fun completion(
         projectId: Long,
         relativePath: String,
         line: Int,
-        column: Int
+        column: Int,
+        text: String
     ): List<LspCompletionItem>
 
     suspend fun hover(

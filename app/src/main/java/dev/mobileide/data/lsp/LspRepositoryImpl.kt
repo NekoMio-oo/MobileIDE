@@ -293,8 +293,11 @@ class LspRepositoryImpl(
         projectId: Long,
         relativePath: String,
         line: Int,
-        column: Int
-    ): List<LspCompletionItem> = manager.completion(projectId, relativePath, line, column)
+        column: Int,
+        text: String
+    ): List<LspCompletionItem> = withContext(Dispatchers.IO) {
+        manager.completion(projectId, relativePath, line, column, text)
+    }
 
     override suspend fun hover(
         projectId: Long,

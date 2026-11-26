@@ -10,14 +10,21 @@ import io.github.rosemoe.sora.text.Content
 import io.github.rosemoe.sora.text.ContentReference
 import io.github.rosemoe.sora.widget.CodeEditor
 
-/** Synchronous bridge call used from Sora's completion thread. */
+/**
+ * Bridge from Sora's completion thread to the language server.
+ *
+ * The call returns at once. [onResult] runs later with the server's answer,
+ * or never when the request is superseded by a newer keystroke, times out or
+ * the server is unavailable.
+ */
 fun interface LspCompletionSource {
     fun completion(
-        projectId: Long,
         relativePath: String,
         line: Int,
-        column: Int
-    ): List<LspCompletionItem>
+        column: Int,
+        text: String,
+        onResult: (List<LspCompletionItem>) -> Unit
+    )
 }
 
 /**

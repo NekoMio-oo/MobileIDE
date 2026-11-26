@@ -169,9 +169,18 @@ class LspSession(
 
     // ---- requests ---------------------------------------------------------
 
-    suspend fun completion(uri: String, line: Int, column: Int): List<LspCompletionItem> {
+    /**
+     * A cold server on a phone needs seconds for its first answer (imports,
+     * preamble, index), so completion waits longer than the other requests.
+     */
+    suspend fun completion(
+        uri: String,
+        line: Int,
+        column: Int,
+        timeoutMs: Long = COMPLETION_TIMEOUT_MS
+    ): List<LspCompletionItem> {
         if (state != LspServerState.READY || !capabilities.completion) return emptyList()
-        val result = request("textDocument/completion", positionParams(uri, line, column), 4_000L)
+        val result = request("textDocument/completion", positionParams(uri, line, column), timeoutMs)
         return LspProtocol.parseCompletion(result)
     }
 
@@ -400,5 +409,9 @@ class LspSession(
                 onExit(null)
             }
         }
+    }
+
+    private companion object {
+        const val COMPLETION_TIMEOUT_MS = 8_000L
     }
 }

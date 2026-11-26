@@ -16,14 +16,9 @@ import io.github.rosemoe.sora.widget.SymbolPairMatch
  *
  * Plain delegation is not used because Kotlin generates a final member for a
  * delegated method, which cannot then be replaced by the LSP implementation.
- *
- * Sora calls [requireAutoComplete] on its own completion thread, so a short
- * blocking round-trip to the language server is allowed here; the editor's
- * input path never waits on it. Empty results simply close the popup.
  */
 class LspLanguage(
     private val delegate: Language,
-    private val projectId: Long,
     private val relativePath: String,
     private val source: LspCompletionSource
 ) : Language {
@@ -49,21 +44,40 @@ class LspLanguage(
         delegate.destroy()
     }
 
+    /**
+     * Two sources, published in the order they can answer.
+     *
+     * 1. The delegate's own completion runs first and answers immediately. It
+     *    is the lexical completion C-like files had before any server existed,
+     *    and it keeps working when none is installed.
+     * 2. The server answers later on another thread, so this method never waits
+     *    for it: Sora creates a thread per request and blocks nothing else.
+     *
+     * Sora invalidates the ContentReference as soon as a newer request starts.
+     * Everything the late answer needs is therefore read now, and the reference
+     * is validated again before publishing so a stale answer is dropped rather
+     * than inserted at a position the user has already left.
+     */
     override fun requireAutoComplete(
         content: ContentReference,
         position: CharPosition,
         publisher: CompletionPublisher,
         extraArguments: Bundle
     ) {
-        val items = runCatching {
-            source.completion(projectId, relativePath, position.line, position.column)
-        }.getOrDefault(emptyList())
-        if (items.isEmpty()) {
-            publisher.updateList()
-            return
+        runCatching { delegate.requireAutoComplete(content, position, publisher, extraArguments) }
+
+        val prefix = runCatching { prefixLengthAt(content, position) }.getOrDefault(0)
+        val text = runCatching { content.reference.toString() }.getOrDefault("")
+
+        runCatching {
+            source.completion(relativePath, position.line, position.column, text) { items ->
+                if (items.isEmpty()) return@completion
+                if (runCatching { content.validateAccess() }.isFailure) return@completion
+                runCatching {
+                    publisher.addItems(items.map { SoraLspCompletionItem(it, prefix) })
+                    publisher.updateList()
+                }
+            }
         }
-        val prefix = prefixLengthAt(content, position)
-        publisher.addItems(items.map { SoraLspCompletionItem(it, prefix) })
-        publisher.updateList()
     }
 }
