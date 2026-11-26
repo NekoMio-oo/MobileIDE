@@ -54,7 +54,7 @@ LD_PRELOAD=/tmp/shim3.so \
 - 仓库：`https://github.com/NekoMio-oo/MobileIDE`（公开）。旧版 v1.0.0 的 2 个提交保留在历史底部，新架构作为第 3 个提交叠加。
 - **约定：每次对话只要改了代码就生成一个 commit；一个修复一个 commit**，便于逐项 `git revert`。不要把多个子系统的修复揉进一个提交。
 - 提交身份用仓库本地配置 `NekoMio-oo <89490849+NekoMio-oo@users.noreply.github.com>`；远程 URL 不含 token，push 用一次性 `http.extraHeader`；token 绝不写入仓库、配置或记忆。
-- `.gitignore` 排除构建产物、`local.properties`、`.kotlin/`、`.workbuddy/*`（但保留 `!.workbuddy/memory/`）。
+- `.gitignore` 排除构建产物、`local.properties`、`.kotlin/`、`.workbuddy/*`（但保留 `!.workbuddy/memory/`）。**build 忽略规则必须锚定为 `/build/` 和 `/app/build/`**：项目里有源码包 `dev.mobileide.data/build`、`domain/build`、`feature/build`，写成 `build/` 会把它们一起忽略，本地能编译但 clone 后 CI 必然报 `Unresolved reference 'build'`。
 - `.github/workflows/build-apk.yml`：JDK 21 + `platforms;android-35` + `build-tools;35.0.0` + NDK 27.2.12479018，用 `./gradlew` 跑 `:app:testDebugUnitTest` 与 `:app:assembleDebug`，上传 APK 并强推到 `apk-output` 分支。运行时不再往 jniLibs 里塞 proot（新架构在设备上下载）。
 - `settings.gradle.kts`：`CI=true`/`GITHUB_ACTIONS=true` 时跳过 aliyun 镜像只用官方源（GitHub runner 上镜像解析不到 KSP 插件 marker，会直接失败）；本地保持镜像优先。本机还有 `~/.gradle/init.gradle` 注入镜像，不入库。
 
