@@ -26,8 +26,8 @@ fun rememberEditorColorScheme(): EditorColorScheme {
 
 /**
  * Sora 0.23 only ships a maintained Java lexer. C-like languages reuse it
- * (real tokenizer, not a regex), everything else stays plain text until
- * TextMate/Tree-sitter lands.
+ * (real tokenizer, not a regex), Python has a small scanner, and the remaining
+ * languages stay plain text until TextMate/Tree-sitter lands.
  */
 fun EditorLanguage.toSoraLanguage(): Language = when (this) {
     EditorLanguage.C,
@@ -36,6 +36,8 @@ fun EditorLanguage.toSoraLanguage(): Language = when (this) {
     EditorLanguage.KOTLIN,
     EditorLanguage.JAVASCRIPT,
     EditorLanguage.TYPESCRIPT -> JavaLanguage()
+
+    EditorLanguage.PYTHON -> PythonLanguage()
 
     else -> EmptyLanguage()
 }
