@@ -1,0 +1,185 @@
+package dev.mobileide.domain.git
+
+/**
+ * How one path changed in the index or in the working tree.
+ *
+ * The enum is shared by the porcelain parser, the UI sections and the diff
+ * loader; the raw `XY` characters are kept on [GitFileChange] so a file that is
+ * both staged and modified can appear in both lists.
+ */
+enum class GitChangeKind {
+    MODIFIED,
+    ADDED,
+    DELETED,
+    RENAMED,
+    COPIED,
+    TYPE_CHANGED,
+    UNTRACKED,
+    CONFLICTED,
+    UNKNOWN
+}
+
+/**
+ * One entry of `git status --porcelain=v2`. [path] is project-relative with
+ * forward slashes; [originalPath] is present for renames and copies.
+ */
+data class GitFileChange(
+    val path: String,
+    val originalPath: String? = null,
+    val indexStatus: Char = '.',
+    val workTreeStatus: Char = '.',
+    val indexChange: GitChangeKind? = null,
+    val workTreeChange: GitChangeKind? = null,
+    val untracked: Boolean = false,
+    val conflicted: Boolean = false
+) {
+    /** True when the index differs from HEAD, i.e. what a commit would include. */
+    val isStaged: Boolean
+        get() = !untracked && !conflicted && indexChange != null
+
+    /** True when the worktree differs from the index. */
+    val hasUnstaged: Boolean
+        get() = !untracked && !conflicted && workTreeChange != null
+
+    /** Best single label for compact lists. */
+    val displayChange: GitChangeKind
+        get() = when {
+            conflicted -> GitChangeKind.CONFLICTED
+            untracked -> GitChangeKind.UNTRACKED
+            else -> indexChange ?: workTreeChange ?: GitChangeKind.UNKNOWN
+        }
+}
+
+/** Parsed `git status --porcelain=v2 --branch` output. */
+data class GitRepoStatus(
+    val branch: String? = null,
+    val detached: Boolean = false,
+    val headCommit: String? = null,
+    val upstream: String? = null,
+    val ahead: Int = 0,
+    val behind: Int = 0,
+    val changes: List<GitFileChange> = emptyList(),
+    /** True when the output hit a cap and the list is incomplete. */
+    val truncated: Boolean = false
+) {
+    val staged: List<GitFileChange>
+        get() = changes.filter { it.isStaged }
+
+    val unstaged: List<GitFileChange>
+        get() = changes.filter { it.hasUnstaged }
+
+    val untracked: List<GitFileChange>
+        get() = changes.filter { it.untracked }
+
+    val conflicted: List<GitFileChange>
+        get() = changes.filter { it.conflicted }
+
+    val isClean: Boolean
+        get() = changes.isEmpty()
+}
+
+/** Repository details shown on the overview card. */
+data class GitRepoInfo(
+    val projectPath: String,
+    val gitDirPath: String,
+    val branch: String? = null,
+    val detached: Boolean = false,
+    val headCommit: String? = null,
+    val upstream: String? = null,
+    val ahead: Int = 0,
+    val behind: Int = 0
+)
+
+/** Why the Git panel cannot show a usable repository. */
+enum class GitAvailability {
+    CHECKING,
+    LINUX_MISSING,
+    GIT_MISSING,
+    NOT_A_REPO,
+    READY,
+    ERROR
+}
+
+/** Long-running work shown as a banner, independent of individual commands. */
+enum class GitOperationKind {
+    INSTALL,
+    INIT,
+    REFRESH,
+    STAGE,
+    UNSTAGE,
+    COMMIT,
+    BRANCH,
+    FETCH,
+    PULL,
+    PUSH,
+    DIFF
+}
+
+data class GitOperation(
+    val kind: GitOperationKind,
+    val title: String,
+    val detail: String? = null,
+    val progress: Float? = null,
+    /** False for short commands that should not expose a cancel button. */
+    val cancellable: Boolean = true
+)
+
+enum class GitErrorKind {
+    LINUX_MISSING,
+    GIT_MISSING,
+    NOT_A_REPO,
+    INVALID_PROJECT,
+    INVALID_PATH,
+    AUTH_FAILED,
+    NETWORK,
+    CONFLICT,
+    DIRTY_WORKTREE,
+    BRANCH_NOT_MERGED,
+    IDENTITY_MISSING,
+    LOCKED,
+    TIMEOUT,
+    CANCELLED,
+    OUTPUT_TRUNCATED,
+    IO,
+    UNKNOWN
+}
+
+/**
+ * A failed Git action. [message] is short and user-facing; [detail] keeps the
+ * tail of stderr for diagnostics and is already stripped of credentials.
+ */
+data class GitError(
+    val kind: GitErrorKind,
+    val message: String,
+    val detail: String? = null
+)
+
+/** Full state of the Git panel for one project. */
+data class GitSnapshot(
+    val projectId: Long = 0L,
+    val projectName: String = "",
+    val projectPath: String = "",
+    val isLoading: Boolean = true,
+    val isBusy: Boolean = false,
+    val availability: GitAvailability = GitAvailability.CHECKING,
+    val linuxInstalled: Boolean = false,
+    val gitVersion: String? = null,
+    /** A `.git` entry exists on disk; only a hint until `rev-parse` confirms. */
+    val hasGitDir: Boolean = false,
+    val repo: GitRepoInfo? = null,
+    val status: GitRepoStatus? = null,
+    val operation: GitOperation? = null,
+    val message: String? = null,
+    val error: GitError? = null
+)
+
+data class GitInstallResult(
+    val success: Boolean,
+    val message: String? = null,
+    val detail: String? = null
+)
+
+sealed interface GitActionResult {
+    data object Success : GitActionResult
+    data class Failure(val error: GitError) : GitActionResult
+}

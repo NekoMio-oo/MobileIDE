@@ -21,6 +21,10 @@ import dev.mobileide.data.build.providers.JavaBuildProvider
 import dev.mobileide.data.build.providers.RustBuildProvider
 import dev.mobileide.data.build.providers.TypeScriptBuildProvider
 import dev.mobileide.data.build.providers.UnsupportedBuildProvider
+import dev.mobileide.data.git.GitPaths
+import dev.mobileide.data.git.GitRepositoryImpl
+import dev.mobileide.data.git.ProotGitInstaller
+import dev.mobileide.data.git.ProotGitRunner
 import dev.mobileide.data.local.ProjectDatabase
 import dev.mobileide.data.lsp.LspCatalogLoader
 import dev.mobileide.data.lsp.LspManifestStore
@@ -46,6 +50,7 @@ import dev.mobileide.domain.editor.EditorSessionStore
 import dev.mobileide.domain.build.BuildLanguage
 import dev.mobileide.domain.build.BuildProvider
 import dev.mobileide.domain.build.BuildRepository
+import dev.mobileide.domain.git.GitRepository
 import dev.mobileide.domain.lsp.LspRepository
 import dev.mobileide.domain.repository.ProjectRepository
 import dev.mobileide.domain.repository.StorageBrowser
@@ -167,6 +172,17 @@ class AppContainer(context: Context) {
             taskStore = BuildTaskStore(projectRepository),
             scanner = SourceScanner(projectRepository),
             providers = buildProviders()
+        )
+    }
+
+    /** Git CLI shares the Debian userland with the terminal and the build system. */
+    val gitRepository: GitRepository by lazy {
+        val gitPaths = GitPaths(appContext.filesDir, appContext.cacheDir)
+        GitRepositoryImpl(
+            projects = projectRepository,
+            runner = ProotGitRunner(linuxRuntime, gitPaths),
+            installer = ProotGitInstaller(linuxRuntime, runtimeExecutor),
+            linuxInstalled = { linuxRuntime.isInstalled() }
         )
     }
 }

@@ -12,6 +12,7 @@ import dev.mobileide.feature.build.BuildScreen
 import dev.mobileide.feature.createproject.CreateProjectScreen
 import dev.mobileide.feature.editor.EditorScreen
 import dev.mobileide.feature.fileexplorer.FileExplorerScreen
+import dev.mobileide.feature.git.GitProjectScreen
 import dev.mobileide.feature.git.GitScreen
 import dev.mobileide.feature.home.HomeScreen
 import dev.mobileide.feature.projects.ProjectsScreen
@@ -57,7 +58,21 @@ fun MobileIdeNavHost(
         }
 
         composable(TopLevelDestination.GIT.route) {
-            GitScreen()
+            GitScreen(
+                onOpenProjectGit = { projectId ->
+                    navController.navigate(Routes.gitProject(projectId))
+                }
+            )
+        }
+
+        composable(
+            route = Routes.GIT_PROJECT,
+            arguments = listOf(navArgument("projectId") { type = NavType.StringType })
+        ) {
+            GitProjectScreen(
+                onBack = { navController.popBackStack() },
+                onOpenRuntimes = { navController.navigate(Routes.RUNTIMES) }
+            )
         }
 
         composable(TopLevelDestination.SETTINGS.route) {

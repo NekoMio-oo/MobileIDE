@@ -21,6 +21,7 @@ enum class TopLevelDestination(
 
 object Routes {
     const val CREATE_PROJECT = "create_project"
+    const val GIT_PROJECT = "git/{projectId}"
     const val WORKSPACE = "workspace/{projectId}?dir={dir}"
     const val EDITOR = "editor/{projectId}?path={path}"
     const val RUNTIMES = "runtimes"
@@ -39,6 +40,8 @@ object Routes {
             .encodeToString(directory.toByteArray(Charsets.UTF_8))
         return "workspace/$projectId?dir=$encoded"
     }
+
+    fun gitProject(projectId: Long): String = "git/$projectId"
 
     fun build(projectId: Long): String = "build/$projectId"
 
