@@ -1,0 +1,510 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">MobileIDE</string>
+
+    <string name="nav_home">Home</string>
+    <string name="nav_projects">Projects</string>
+    <string name="nav_git">Git</string>
+    <string name="nav_settings">Settings</string>
+
+    <string name="home_welcome_title">Welcome to MobileIDE</string>
+    <string name="home_welcome_subtitle">Your development workspace, anywhere.</string>
+
+    <string name="home_new_project_title">New Project</string>
+    <string name="home_new_project_description">Create a new project</string>
+    <string name="home_open_project_title">Open Project</string>
+    <string name="home_open_project_description">Open an existing project</string>
+
+    <string name="home_recent_title">Recent Projects</string>
+    <string name="action_view_all">View All</string>
+    <string name="home_recent_empty_title">No recent projects</string>
+    <string name="home_recent_empty_description">Create or open a project to get started.</string>
+
+    <string name="action_more">More options</string>
+    <string name="action_open">Open</string>
+    <string name="action_copy_location">Copy location</string>
+    <string name="action_back">Back</string>
+    <string name="action_cancel">Cancel</string>
+
+    <string name="projects_title">Projects</string>
+    <plurals name="projects_count">
+        <item quantity="one">%1$d project</item>
+        <item quantity="other">%1$d projects</item>
+    </plurals>
+    <string name="projects_empty_title">No projects yet</string>
+    <string name="projects_empty_description">Create or open a project to get started.</string>
+    <string name="projects_search_empty_title">No matching projects</string>
+    <string name="projects_search_empty_description">Try a different name or location.</string>
+    <string name="projects_load_error">Could not load the project list.</string>
+    <string name="home_load_error">Could not load recent projects.</string>
+    <string name="project_search_placeholder">Search projects</string>
+
+    <string name="project_menu_rename">Rename</string>
+    <string name="project_menu_remove">Remove from MobileIDE</string>
+    <string name="project_menu_delete_files">Delete project files</string>
+
+    <string name="git_title">Git</string>
+    <string name="git_description">Branches, commits and diffs will be managed here.</string>
+
+    <string name="settings_title">Settings</string>
+    <string name="settings_description">Editor, appearance and toolchain preferences will live here. The app follows the system light or dark theme.</string>
+
+    <string name="placeholder_badge">Planned for a later phase</string>
+
+    <string name="message_location_copied">Location copied to clipboard</string>
+    <string name="message_project_removed">%1$s removed from MobileIDE</string>
+    <string name="message_project_deleted">%1$s deleted from the device</string>
+    <string name="message_project_renamed">Renamed to %1$s</string>
+
+    <string name="create_project_title">New Project</string>
+    <string name="create_project_subtitle">Name your project, pick a language, and MobileIDE creates it in AndroidProjects.</string>
+    <string name="create_project_name_label">Project name</string>
+    <string name="create_project_name_placeholder">my-project</string>
+    <string name="create_project_type_label">Project type</string>
+    <string name="create_project_submit">Create Project</string>
+    <string name="create_project_success_title">Project created</string>
+    <string name="create_project_success_message">%1$s is ready in %2$s.</string>
+    <string name="create_project_open">Open project</string>
+    <string name="create_project_done">Done</string>
+    <string name="create_error_permission">MobileIDE does not have write access to that folder.</string>
+    <string name="create_error_duplicate">A folder with this name already exists in that location.</string>
+    <string name="create_error_io">Could not create the project. Check the folder and try again.</string>
+    <string name="create_project_error_detail">Details: %1$s</string>
+
+    <string name="name_error_empty">Enter a project name.</string>
+    <string name="name_error_too_long">Use 64 characters or fewer.</string>
+    <string name="name_error_invalid">Avoid these characters: / \ : * ? " &lt; &gt; |</string>
+    <string name="name_error_reserved">Names starting with a dot are reserved.</string>
+
+    <string name="rename_title">Rename project</string>
+    <string name="rename_folder_hint">The folder on disk is renamed too when MobileIDE has permission.</string>
+    <string name="rename_confirm">Rename</string>
+    <string name="rename_error">Could not rename the project.</string>
+
+    <string name="remove_title">Remove project?</string>
+    <string name="remove_message">%1$s will be removed from MobileIDE. Files on disk are not touched.</string>
+    <string name="remove_confirm">Remove</string>
+    <string name="remove_error">Could not remove the project.</string>
+
+    <string name="delete_files_confirm_title">Delete files permanently?</string>
+    <string name="delete_files_confirm_message">All files inside %1$s will be removed from the device.</string>
+    <string name="delete_files_confirm">Delete</string>
+    <string name="delete_files_error">Could not delete the project files.</string>
+
+    <string name="access_error_title">Project unavailable</string>
+    <string name="access_error_message">MobileIDE can no longer open %1$s. The folder may have moved or the permission was revoked.</string>
+    <string name="access_error_remove">Remove from MobileIDE</string>
+
+    <string name="open_error_permission">MobileIDE could not get permission for that folder.</string>
+    <string name="open_error_io">Could not open that folder.</string>
+    <string name="workspace_retry">Retry</string>
+
+    <string name="explorer_subtitle_root">Project root</string>
+    <string name="explorer_up">Up one level</string>
+    <string name="explorer_search">Search files</string>
+    <string name="explorer_close_search">Close search</string>
+    <string name="explorer_clear_search">Clear search</string>
+    <string name="explorer_search_hint">Search file names</string>
+    <string name="explorer_search_filter_label">Type: %1$s</string>
+    <string name="explorer_search_scanning">Searching…</string>
+    <string name="explorer_search_empty_title">No matching files</string>
+    <string name="explorer_search_empty_description">Try a different name or file type.</string>
+    <string name="explorer_search_prompt_title">Search this project</string>
+    <string name="explorer_search_prompt_description">Type part of a file name to search every folder.</string>
+    <plurals name="explorer_search_results">
+        <item quantity="one">%1$d result</item>
+        <item quantity="other">%1$d results</item>
+    </plurals>
+
+    <string name="explorer_filter_any">All files</string>
+    <string name="explorer_filter_c">C / C++</string>
+    <string name="explorer_filter_python">Python</string>
+    <string name="explorer_filter_jvm">Java / Kotlin</string>
+    <string name="explorer_filter_web">JavaScript / Web</string>
+    <string name="explorer_filter_systems">Go / Rust</string>
+    <string name="explorer_filter_docs">Docs / Data</string>
+
+    <string name="explorer_create">Create</string>
+    <string name="explorer_new_file">New file</string>
+    <string name="explorer_new_folder">New folder</string>
+    <string name="explorer_refresh">Refresh</string>
+    <string name="explorer_project_info">Project info</string>
+    <string name="explorer_row_more">File actions</string>
+    <string name="explorer_entry_folder">Folder</string>
+    <string name="explorer_entry_meta">%1$s · %2$s</string>
+    <string name="explorer_empty_title">This folder is empty</string>
+    <string name="explorer_empty_description">Create a file or folder to get started.</string>
+    <string name="explorer_binary_blocked">%1$s is a binary file and cannot be opened in the editor.</string>
+    <string name="explorer_created_file">%1$s created</string>
+
+    <string name="explorer_create_file_title">New file</string>
+    <string name="explorer_create_folder_title">New folder</string>
+    <string name="explorer_rename_title">Rename</string>
+    <string name="explorer_name_label">Name</string>
+    <string name="explorer_name_file_hint">main.c</string>
+    <string name="explorer_name_folder_hint">src</string>
+    <string name="explorer_name_location">In %1$s</string>
+    <string name="explorer_create_confirm">Create</string>
+    <string name="explorer_rename_confirm">Rename</string>
+    <string name="explorer_deleting">Deleting…</string>
+    <string name="explorer_error_duplicate">An entry with this name already exists.</string>
+    <string name="explorer_error_failed">The operation failed. Check the folder and try again.</string>
+    <string name="explorer_error_permission">This folder is not writable.</string>
+    <string name="explorer_error_not_a_folder">The destination is not a folder.</string>
+    <string name="explorer_error_invalid_path">That path is not valid.</string>
+
+    <string name="entry_name_empty">Enter a name.</string>
+    <string name="entry_name_too_long">Use 128 characters or fewer.</string>
+    <string name="entry_name_invalid">Avoid these characters: / \ : * ? " &lt; &gt; |</string>
+    <string name="entry_name_reserved">"." and ".." are reserved names.</string>
+
+    <string name="explorer_delete_file_title">Delete file?</string>
+    <string name="explorer_delete_folder_title">Delete folder?</string>
+    <string name="explorer_delete_file_message">%1$s will be permanently deleted. This cannot be undone.</string>
+    <string name="explorer_delete_folder_message">%1$s and everything inside it will be permanently deleted. This cannot be undone.</string>
+    <plurals name="explorer_delete_folder_contents">
+        <item quantity="one">It currently contains %1$d item.</item>
+        <item quantity="other">It currently contains %1$d items.</item>
+    </plurals>
+    <string name="explorer_delete_confirm">Delete</string>
+
+    <string name="explorer_info_title">Details</string>
+    <string name="explorer_info_name">Name</string>
+    <string name="explorer_info_type">Type</string>
+    <string name="explorer_info_size">Size</string>
+    <string name="explorer_info_modified">Modified</string>
+    <string name="explorer_info_path">Path</string>
+    <string name="explorer_info_permissions">Permissions</string>
+    <string name="explorer_info_read_write">Read and write</string>
+    <string name="explorer_info_read_only">Read only</string>
+    <string name="explorer_info_no_access">No access</string>
+    <string name="explorer_info_unknown">Unknown</string>
+    <string name="explorer_info_folder">Folder</string>
+    <string name="explorer_info_close">Close</string>
+    <string name="explorer_info_created">Created</string>
+    <string name="explorer_info_opened">Last opened</string>
+    <string name="explorer_info_location">Location</string>
+    <string name="explorer_project_type">Project type</string>
+
+    <string name="storage_gate_title">Storage access required</string>
+    <string name="storage_gate_message">MobileIDE needs All files access to browse, create and edit project files.</string>
+
+    <string name="action_dismiss">Dismiss</string>
+
+    <string name="file_error_not_found">The file or folder no longer exists.</string>
+    <string name="file_error_not_a_file">This entry is a folder, not a file.</string>
+    <string name="file_error_permission">MobileIDE no longer has access to this project.</string>
+    <string name="file_error_too_large">This file exceeds the editor size limit.</string>
+    <string name="file_error_binary">Binary files cannot be opened in the text editor.</string>
+    <string name="file_error_io">The file operation failed.</string>
+
+    <string name="editor_save">Save</string>
+    <string name="editor_undo">Undo</string>
+    <string name="editor_redo">Redo</string>
+    <string name="editor_select_all">Select all</string>
+    <string name="editor_cut">Cut</string>
+    <string name="editor_copy">Copy</string>
+    <string name="editor_paste">Paste</string>
+    <string name="editor_find">Find</string>
+    <string name="editor_find_hint">Find in file</string>
+    <string name="editor_find_previous">Previous match</string>
+    <string name="editor_find_next">Next match</string>
+    <string name="editor_find_close">Close search</string>
+    <string name="editor_meta">%1$s · Ln %2$d, Col %3$d</string>
+    <string name="editor_unsaved">Unsaved</string>
+    <string name="editor_saved">Saved</string>
+    <string name="editor_error_too_large">This file is %1$s, larger than the 2 MB editor limit.</string>
+    <string name="editor_move_left">Move cursor left</string>
+    <string name="editor_move_right">Move cursor right</string>
+    <string name="editor_move_up">Move cursor up</string>
+    <string name="editor_move_down">Move cursor down</string>
+
+    <string name="editor_tab_close">Close tab</string>
+    <string name="editor_tabs_menu">Tab actions</string>
+    <string name="editor_tabs_close_current">Close tab</string>
+    <string name="editor_tabs_close_others">Close other tabs</string>
+    <string name="editor_tabs_close_all">Close all tabs</string>
+    <string name="editor_tabs_save_all">Save all</string>
+    <string name="editor_tabs_empty_title">No open files</string>
+    <string name="editor_tabs_empty_description">Open a file from the project browser to start editing.</string>
+    <string name="editor_tabs_empty_action">Back to files</string>
+
+    <string name="editor_unsaved_title">Unsaved changes</string>
+    <string name="editor_unsaved_one">Save changes to %1$s before closing?</string>
+    <plurals name="editor_unsaved_many">
+        <item quantity="one">%1$d file has unsaved changes.</item>
+        <item quantity="other">%1$d files have unsaved changes.</item>
+    </plurals>
+    <string name="editor_unsaved_save">Save</string>
+    <string name="editor_unsaved_save_all">Save all</string>
+    <string name="editor_unsaved_discard">Discard</string>
+    <string name="editor_unsaved_discard_all">Discard all</string>
+    <string name="editor_unsaved_failed">Could not save: %1$s. Nothing was closed.</string>
+    <string name="editor_unsaved_changed">Changed on disk, not overwritten: %1$s.</string>
+
+    <string name="editor_external_title">File changed on disk</string>
+    <string name="editor_external_message">%1$s was modified outside MobileIDE. Saving now will overwrite those changes.</string>
+    <string name="editor_external_overwrite">Overwrite</string>
+    <string name="editor_external_reload">Reload</string>
+    <string name="editor_external_banner">This file changed on disk.</string>
+    <string name="editor_external_review">Review</string>
+    <string name="editor_save_failed_names">Not saved: %1$s</string>
+    <string name="editor_save_changed_names">Changed on disk, not saved: %1$s</string>
+
+    <string name="editor_tab_limit_title">Too many tabs</string>
+    <string name="editor_tab_limit_message">Close a tab before opening another file.</string>
+    <string name="editor_file_missing_title">File no longer exists</string>
+    <string name="editor_file_missing_message">This file was deleted or moved. Saving is disabled so the file is not recreated.</string>
+    <string name="editor_saving">Saving…</string>
+
+    <string name="storage_permission_title">Storage access required</string>
+    <string name="storage_permission_message">MobileIDE needs All files access to create and edit projects in shared storage.</string>
+    <string name="storage_permission_grant">Grant access</string>
+
+    <string name="create_project_root_label">Project folder</string>
+    <string name="create_root_ready">Ready</string>
+    <string name="create_root_unavailable">Unavailable — grant storage access</string>
+    <string name="create_error_root_unavailable">The project folder is not ready. Grant storage access and try again.</string>
+    <string name="create_error_invalid_path">The project folder path is not valid.</string>
+
+    <string name="project_needs_relocation">Needs relocation</string>
+    <string name="project_menu_relocate">Locate folder</string>
+    <string name="relink_title">Relocate project</string>
+    <string name="relink_message">%1$s was opened with the old storage system. Choose its folder on this device to continue using it, or remove the record. Removing never deletes files.</string>
+    <string name="relink_locate">Choose folder</string>
+    <string name="relink_picker_title">Locate project folder</string>
+    <string name="relink_error">Could not relocate the project.</string>
+    <string name="relink_error_registered">That folder is already used by another project.</string>
+    <string name="message_project_relocated">%1$s relocated</string>
+
+    <string name="folder_picker_open_title">Open project</string>
+    <string name="folder_picker_use">Use this folder</string>
+    <string name="folder_picker_up">Up one level</string>
+    <string name="folder_picker_empty">No subfolders here</string>
+
+    <string name="file_error_invalid_path">The path is not valid.</string>
+    <string name="open_error_invalid_path">That folder cannot be used as a project.</string>
+
+    <string name="settings_project_storage">Project storage</string>
+    <string name="settings_project_root">Project folder</string>
+    <string name="settings_storage_access">All files access</string>
+    <string name="settings_storage_granted">Granted</string>
+    <string name="settings_storage_not_granted">Not granted</string>
+    <string name="settings_storage_grant">Grant</string>
+
+    <string name="settings_runtimes">Runtimes</string>
+    <string name="settings_runtimes_description">Linux environment and language toolchains</string>
+
+    <string name="runtimes_title">Runtimes</string>
+    <string name="runtimes_linux_section">Linux environment</string>
+    <string name="runtimes_languages_section">Language toolchains</string>
+    <string name="runtimes_builtin_section">Built in</string>
+    <string name="runtimes_refresh">Refresh</string>
+    <string name="runtimes_install">Install</string>
+    <string name="runtimes_reinstall">Reinstall</string>
+    <string name="runtimes_uninstall">Remove</string>
+    <string name="runtimes_check">Check</string>
+    <string name="runtimes_cancel">Cancel</string>
+    <string name="runtimes_view_log">View log</string>
+    <string name="runtimes_log_title">Install log</string>
+    <string name="runtimes_state_not_installed">Not installed</string>
+    <string name="runtimes_state_checking">Checking</string>
+    <string name="runtimes_state_installed">Installed</string>
+    <string name="runtimes_state_installing">Installing</string>
+    <string name="runtimes_state_unsupported">Unsupported</string>
+    <string name="runtimes_state_failed">Failed</string>
+    <string name="runtimes_version">Version %1$s</string>
+    <string name="runtimes_size">Size %1$s</string>
+    <string name="runtimes_path">Path %1$s</string>
+    <string name="runtimes_install_linux_title">Install Linux environment?</string>
+    <string name="runtimes_install_linux_message">Downloads the Debian 12 arm64 userland (about 95 MB) and proot. Use Wi-Fi and keep the app open.</string>
+    <string name="runtimes_uninstall_linux_title">Remove Linux environment?</string>
+    <string name="runtimes_uninstall_linux_message">Deletes the Debian userland and every toolchain installed inside it. Project files are not touched.</string>
+    <string name="runtimes_install_toolchain_title">Install %1$s?</string>
+    <string name="runtimes_install_toolchain_message">Runs apt inside the Linux environment and downloads: %1$s. This can take several minutes.</string>
+    <string name="runtimes_stage_downloading">Downloading %1$s</string>
+    <string name="runtimes_stage_verifying">Verifying %1$s</string>
+    <string name="runtimes_stage_extracting">Extracting %1$s</string>
+    <string name="runtimes_stage_finalizing">Finishing…</string>
+    <string name="runtimes_progress_bytes">%1$s / %2$s</string>
+    <string name="runtimes_requires_linux">Install the Linux environment first.</string>
+    <string name="runtimes_busy_hint">Keep the app open while this runs.</string>
+    <string name="runtimes_dismiss">Dismiss</string>
+    <string name="runtimes_no_packages">No packages available.</string>
+
+    <!-- Build system -->
+    <string name="build_title">Build</string>
+    <string name="build_project_action">Build project</string>
+    <string name="build_start">Build</string>
+    <string name="build_cancel">Cancel build</string>
+    <string name="build_settings">Build settings</string>
+    <string name="build_history">Build history</string>
+    <string name="build_retry">Rebuild</string>
+    <string name="build_tab_log">Log</string>
+    <string name="build_tab_problems">Problems</string>
+    <string name="build_tab_artifacts">Artifacts</string>
+    <string name="build_state_idle">Ready</string>
+    <string name="build_state_preparing">Preparing</string>
+    <string name="build_state_compiling">Compiling</string>
+    <string name="build_state_succeeded">Succeeded</string>
+    <string name="build_state_failed">Failed</string>
+    <string name="build_state_cancelled">Cancelled</string>
+    <string name="build_state_interrupted">Interrupted</string>
+    <string name="build_stat_duration">Duration</string>
+    <string name="build_stat_errors">Errors</string>
+    <string name="build_stat_warnings">Warnings</string>
+    <string name="build_empty_log">No output yet. Start a build to see compiler output.</string>
+    <string name="build_empty_problems">No problems reported.</string>
+    <string name="build_empty_artifacts">No artifacts yet.</string>
+    <string name="build_clear_log">Clear</string>
+    <string name="build_autoscroll">Auto-scroll</string>
+    <string name="build_artifact_delete_title">Delete artifact?</string>
+    <string name="build_artifact_delete_message">Deletes %1$s from the build folder. Source files are not touched.</string>
+    <string name="build_artifact_open_folder">Open folder</string>
+    <string name="build_artifact_delete">Delete</string>
+    <string name="build_history_title">Recent builds</string>
+    <string name="build_history_empty">No builds yet.</string>
+    <plurals name="build_history_stats">
+        <item quantity="one">%1$s · %2$d error · %3$d warnings</item>
+        <item quantity="other">%1$s · %2$d errors · %3$d warnings</item>
+    </plurals>
+    <string name="build_toolchain_ready">Toolchain ready</string>
+    <string name="build_toolchain_linux_missing">Linux environment required</string>
+    <string name="build_toolchain_missing">Toolchain not installed</string>
+    <string name="build_toolchain_unsupported">Not supported</string>
+    <string name="build_toolchain_unknown">Checking toolchain…</string>
+    <string name="build_unsaved_title">Unsaved files</string>
+    <plurals name="build_unsaved_message">
+        <item quantity="one">%1$d file has unsaved changes. The build uses the content saved on disk.</item>
+        <item quantity="other">%1$d files have unsaved changes. The build uses the content saved on disk.</item>
+    </plurals>
+    <string name="build_unsaved_build">Build anyway</string>
+    <string name="build_keep_open">Keep the app open while building.</string>
+    <string name="build_log_truncated">Only the last 2000 lines are shown. The full log is saved in .mobileide/logs.</string>
+    <string name="build_busy">Another build is already running. Cancel it or wait for it to finish.</string>
+
+    <!-- Build settings -->
+    <string name="build_config_title">Build settings</string>
+    <string name="build_config_language">Language</string>
+    <string name="build_config_mode">Mode</string>
+    <string name="build_config_compiler">Compiler</string>
+    <string name="build_config_standard">Standard</string>
+    <string name="build_config_output">Output name</string>
+    <string name="build_config_sources">Source files</string>
+    <string name="build_config_sources_auto">Build every matching source file in the project</string>
+    <string name="build_config_entry">Entry file</string>
+    <string name="build_config_entry_none">None</string>
+    <string name="build_config_includes">Include folders</string>
+    <string name="build_config_libdirs">Library folders</string>
+    <string name="build_config_libs">Libraries</string>
+    <string name="build_config_cflags">Compiler flags</string>
+    <string name="build_config_lflags">Linker flags</string>
+    <string name="build_config_classpath">Classpath</string>
+    <string name="build_config_target">JavaScript target</string>
+    <string name="build_config_save">Save</string>
+    <string name="build_config_list_hint">One per line, relative to the project</string>
+    <string name="build_config_flags_hint">One flag per line</string>
+    <string name="build_config_no_sources">No matching source files</string>
+    <string name="build_config_mode_debug">Debug</string>
+    <string name="build_config_mode_release">Release</string>
+    <string name="build_config_select_all">Select all</string>
+    <string name="build_config_select_none">Clear</string>
+    <string name="build_config_saved">Build settings saved</string>
+    <string name="build_config_target_fixed">linux/arm64 (fixed)</string>
+    <string name="build_config_unsupported_language">This language has no build step in MobileIDE.</string>
+    <plurals name="build_config_sources_selected">
+        <item quantity="one">%1$d of %2$d selected</item>
+        <item quantity="other">%1$d of %2$d selected</item>
+    </plurals>
+
+    <!-- Terminal -->
+    <string name="terminal_title">Terminal</string>
+    <string name="terminal_open">Open terminal</string>
+    <string name="terminal_new">New terminal</string>
+    <string name="terminal_env_android">Android shell</string>
+    <string name="terminal_env_linux">Debian (PRoot)</string>
+    <string name="terminal_close">Close session</string>
+    <string name="terminal_close_all">Close all sessions</string>
+    <string name="terminal_settings">Terminal settings</string>
+    <string name="terminal_warning">Commands run with the app permissions and can modify or delete project files.</string>
+    <string name="terminal_empty_title">No terminal open</string>
+    <string name="terminal_empty_description">Start a shell in this project. Android shell runs /system/bin/sh; Debian runs bash inside the installed Linux environment.</string>
+    <string name="terminal_empty_action">Start Android shell</string>
+    <string name="terminal_linux_unavailable">Install the Debian environment in Runtimes first.</string>
+    <string name="terminal_no_pty">This build has no native PTY support.</string>
+    <string name="terminal_exit_code">Exited with code %1$d</string>
+    <string name="terminal_default_environment">Default environment</string>
+    <string name="terminal_font_size">Font size</string>
+    <string name="terminal_max_sessions">Max sessions</string>
+    <string name="terminal_clear">Clear screen</string>
+    <string name="terminal_tap_to_type">Tap the terminal to type</string>
+    <string name="terminal_font_decrease">Smaller text</string>
+    <string name="terminal_font_increase">Larger text</string>
+    <string name="terminal_fake_root_note">Debian sessions run as a fake root inside PRoot. It is not real root access and cannot affect Android itself.</string>
+    <string name="terminal_android_hint">Runs /system/bin/sh with the app permissions: no bash, no GNU userland.</string>
+    <string name="terminal_linux_hint">Runs bash as a fake root inside Debian, project mounted at /workspace.</string>
+
+    <!-- Language intelligence -->
+    <string name="settings_lsp">Code intelligence</string>
+    <string name="settings_lsp_description">Language servers for completion, diagnostics and navigation</string>
+
+    <string name="lsp_title">Code intelligence</string>
+    <string name="lsp_refresh">Refresh status</string>
+    <string name="lsp_enabled">Enable language intelligence</string>
+    <string name="lsp_enabled_description">Servers start when a matching file is opened and stop after 10 minutes idle.</string>
+    <string name="lsp_autostart">Start automatically</string>
+    <string name="lsp_max_sessions">Max running servers</string>
+    <string name="lsp_not_installed">Not installed</string>
+    <string name="lsp_state_running">Running</string>
+    <string name="lsp_state_starting">Starting</string>
+    <string name="lsp_state_stopped">Stopped</string>
+    <string name="lsp_state_crashed">Crashed</string>
+    <string name="lsp_state_installing">Installing</string>
+    <string name="lsp_state_unsupported">Unsupported</string>
+    <string name="lsp_install">Install</string>
+    <string name="lsp_remove">Remove</string>
+    <string name="lsp_restart">Restart</string>
+    <string name="lsp_stop_all">Stop all</string>
+    <string name="lsp_logs">Logs</string>
+    <string name="lsp_clear_logs">Clear</string>
+    <string name="lsp_logs_empty">No log entries yet.</string>
+    <string name="lsp_install_title">Install %1$s?</string>
+    <string name="lsp_install_message">Downloads about %1$d MB into the Debian userland. Keep the app open and prefer Wi-Fi.</string>
+    <string name="lsp_remove_title">Remove %1$s?</string>
+    <string name="lsp_remove_message">Deletes the server files. Project files are not touched.</string>
+    <string name="lsp_linux_required">Install the Debian environment in Runtimes first.</string>
+    <string name="lsp_progress_downloading">Downloading</string>
+    <string name="lsp_progress_verifying">Verifying checksum</string>
+    <string name="lsp_progress_extracting">Extracting</string>
+    <string name="lsp_progress_installing">Installing packages</string>
+    <string name="lsp_cancel">Cancel</string>
+    <string name="lsp_version">Version %1$s</string>
+    <string name="lsp_size">%1$d MB</string>
+    <plurals name="lsp_running_count">
+        <item quantity="one">%1$d running</item>
+        <item quantity="other">%1$d running</item>
+    </plurals>
+    <string name="lsp_extra_args">Extra server arguments</string>
+    <string name="lsp_extra_args_hint">One argument per line</string>
+    <string name="lsp_save_args">Save</string>
+    <string name="lsp_args_saved">Saved. Restart the server to apply.</string>
+    <string name="lsp_no_servers">No language servers in the catalog.</string>
+    <string name="lsp_dismiss">Dismiss</string>
+    <string name="lsp_open_runtimes">Open Runtimes</string>
+    <string name="lsp_panel_hover">Hover</string>
+    <string name="lsp_panel_definitions">Definitions</string>
+    <string name="lsp_panel_references">References</string>
+    <string name="lsp_panel_symbols">Outline</string>
+    <string name="lsp_panel_problems">Problems</string>
+    <string name="lsp_no_results">No results from the language server.</string>
+    <string name="lsp_no_hover">No hover information here.</string>
+    <string name="lsp_nothing_to_format">The server returned no formatting changes.</string>
+    <string name="lsp_no_problems">No problems in this file.</string>
+    <string name="lsp_action_complete">Completion</string>
+    <string name="lsp_action_hover">Hover info</string>
+    <string name="lsp_action_definition">Go to definition</string>
+    <string name="lsp_action_references">Find references</string>
+    <string name="lsp_action_symbols">Outline</string>
+    <string name="lsp_action_format">Format document</string>
+    <string name="lsp_action_problems">Problems (%1$d)</string>
+</resources>
