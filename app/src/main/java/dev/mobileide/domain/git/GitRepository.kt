@@ -12,6 +12,9 @@ import kotlinx.coroutines.flow.StateFlow
  */
 interface GitRepository {
 
+    /** Bumped after every successful mutation so lists can reload. */
+    val revision: StateFlow<Long>
+
     /** State for one project; safe to call repeatedly and from any thread. */
     fun observe(projectId: Long): StateFlow<GitSnapshot>
 
@@ -79,6 +82,33 @@ interface GitRepository {
         hash: String,
         path: String
     ): GitDiffResult
+
+    // ---- branches ---------------------------------------------------------
+
+    suspend fun branches(projectId: Long): GitBranchesResult
+
+    /**
+     * Creates and switches to a new branch. [startPoint] may be a local or
+     * remote ref; [track] makes the new branch track it. Unsafe start points
+     * are blocked when the worktree or editor has unsaved changes.
+     */
+    fun createBranch(
+        projectId: Long,
+        name: String,
+        startPoint: String? = null,
+        track: Boolean = false,
+        dirtyEditorFiles: List<String> = emptyList()
+    )
+
+    /** Switches branches; blocked by tracked changes or dirty editor tabs. */
+    fun switchBranch(
+        projectId: Long,
+        name: String,
+        dirtyEditorFiles: List<String> = emptyList()
+    )
+
+    /** Deletes only fully merged branches (`git branch -d`, never `-D`). */
+    fun deleteBranch(projectId: Long, name: String)
 
     fun cancelOperation()
 

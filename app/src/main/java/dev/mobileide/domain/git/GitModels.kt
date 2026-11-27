@@ -302,3 +302,26 @@ sealed interface GitCommitDetailResult {
     data class Success(val detail: GitCommitDetail) : GitCommitDetailResult
     data class Failure(val error: GitError) : GitCommitDetailResult
 }
+
+// ---- Branches ---------------------------------------------------------------
+
+data class GitBranch(
+    val name: String,
+    val isCurrent: Boolean = false,
+    val isRemote: Boolean = false,
+    val shortHash: String? = null,
+    val upstream: String? = null,
+    val ahead: Int = 0,
+    val behind: Int = 0,
+    val upstreamGone: Boolean = false
+)
+
+data class GitBranches(
+    val local: List<GitBranch> = emptyList(),
+    val remote: List<GitBranch> = emptyList()
+)
+
+sealed interface GitBranchesResult {
+    data class Success(val branches: GitBranches) : GitBranchesResult
+    data class Failure(val error: GitError) : GitBranchesResult
+}

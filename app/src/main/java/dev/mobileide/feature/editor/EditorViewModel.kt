@@ -277,25 +277,69 @@ class EditorViewModel(
         viewModelScope.launch { runCatching { tabManager.persist(projectId) } }
     }
 
-    /** Re-checks the active file after returning to the editor screen. */
+    /**
+     * Re-checks every open tab after returning to the editor. Git branch
+     * switches, pulls and external edits can change files while this screen is
+     * in the back stack; clean tabs are reloaded and dirty tabs are flagged
+     * instead of silently overwriting the user's buffer.
+     */
     fun onScreenResumed() {
-        val tab = _uiState.value.activeTab ?: return
+        val tabs = tabManager.tabs(projectId).filter { it.status == EditorTabStatus.READY }
+        if (tabs.isEmpty()) return
         viewModelScope.launch {
-            when (val info = getInfo(tab)) {
-                is ProjectFileInfoResult.Success -> {
-                    if (tab.isDirty &&
-                        tab.baselineModified > 0 &&
-                        info.entry.lastModified != tab.baselineModified
+            tabs.forEach { tab ->
+                when (val info = getInfo(tab)) {
+                    is ProjectFileInfoResult.Success -> {
+                        val changed = tab.baselineModified > 0 &&
+                            (info.entry.lastModified != tab.baselineModified ||
+                                info.entry.size != tab.baselineSize)
+                        if (!changed) return@forEach
+                        if (tab.isDirty) {
+                            tabManager.setExternallyModified(projectId, tab.id, true)
+                        } else {
+                            reloadCleanTab(tab)
+                        }
+                    }
+
+                    is ProjectFileInfoResult.Failure -> if (
+                        info.error == ProjectFileError.NOT_FOUND
                     ) {
-                        tabManager.setExternallyModified(projectId, tab.id, true)
+                        tabManager.markMissing(projectId, tab.id)
                     }
                 }
+            }
+            schedulePersist(immediate = true)
+        }
+    }
 
-                is ProjectFileInfoResult.Failure -> if (
-                    info.error == ProjectFileError.NOT_FOUND
-                ) {
-                    tabManager.markMissing(projectId, tab.id)
+    private suspend fun reloadCleanTab(tab: EditorTab) {
+        when (val result = readTab(tab)) {
+            is ReadProjectFileResult.Success -> {
+                val lineEnding = if (result.content.contains("\r\n")) "\r\n" else "\n"
+                val normalized = result.content.replace("\r\n", "\n").replace('\r', '\n')
+                tabManager.reload(
+                    projectId = projectId,
+                    tabId = tab.id,
+                    text = normalized,
+                    lineEnding = lineEnding,
+                    lastModified = result.lastModified,
+                    size = result.size
+                )
+                if (projectRoot.isNotBlank()) {
+                    lsp.openDocument(
+                        projectId = projectId,
+                        projectPath = projectRoot,
+                        relativePath = tab.relativePath,
+                        language = tab.language,
+                        text = normalized
+                    )
                 }
+            }
+
+            is ReadProjectFileResult.Failure -> if (
+                result.error == ProjectFileError.NOT_FOUND
+            ) {
+                tabManager.markMissing(projectId, tab.id)
             }
         }
     }

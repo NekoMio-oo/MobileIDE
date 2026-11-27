@@ -6,6 +6,7 @@ import dev.mobileide.data.local.ProjectDao
 import dev.mobileide.data.local.ProjectEntity
 import dev.mobileide.data.repository.ProjectRepositoryImpl
 import dev.mobileide.domain.git.GitAvailability
+import dev.mobileide.domain.git.GitBranchesResult
 import dev.mobileide.domain.git.GitChangeKind
 import dev.mobileide.domain.git.GitCommitDetailResult
 import dev.mobileide.domain.git.GitDiffResult
@@ -404,6 +405,109 @@ class GitRepositoryImplTest {
             "Enter a commit message.",
             repository.observe(projectId).value.error?.message
         )
+    }
+
+    @Test
+    fun `creates switches and deletes a merged branch`() = runBlocking {
+        initializeRepository()
+        commitAll("initial")
+        repository.refresh(projectId)
+
+        var branches = (repository.branches(projectId) as GitBranchesResult.Success).branches
+        assertEquals(listOf("main"), branches.local.map { it.name })
+        assertTrue(branches.local.single().isCurrent)
+
+        repository.createBranch(projectId, "feature", null, false)
+        awaitStatus { it.status?.branch == "feature" }
+        branches = (repository.branches(projectId) as GitBranchesResult.Success).branches
+        assertTrue(branches.local.any { it.name == "feature" && it.isCurrent })
+        assertTrue(branches.local.any { it.name == "main" && !it.isCurrent })
+
+        repository.switchBranch(projectId, "main")
+        awaitStatus { it.status?.branch == "main" }
+
+        repository.deleteBranch(projectId, "feature")
+        awaitStatus { true }
+        assertNull(repository.observe(projectId).value.error)
+        branches = (repository.branches(projectId) as GitBranchesResult.Success).branches
+        assertTrue(branches.local.none { it.name == "feature" })
+    }
+
+    @Test
+    fun `creates a branch from an explicit start point`() = runBlocking {
+        initializeRepository()
+        commitAll("initial")
+        repository.refresh(projectId)
+
+        repository.createBranch(projectId, "copy", "main", false)
+
+        awaitStatus { it.status?.branch == "copy" }
+        val branches = (repository.branches(projectId) as GitBranchesResult.Success).branches
+        assertTrue(branches.local.any { it.name == "copy" && it.isCurrent })
+    }
+
+    @Test
+    fun `blocks switching with dirty tracked changes or editor buffers`() = runBlocking {
+        initializeRepository()
+        commitAll("initial")
+        repository.refresh(projectId)
+        repository.createBranch(projectId, "feature", null, false)
+        awaitStatus { it.status?.branch == "feature" }
+
+        File(projectDir, "README.md").appendText("dirty\n")
+        repository.refresh(projectId)
+
+        repository.switchBranch(projectId, "main")
+        awaitStatus { true }
+        assertEquals(
+            GitErrorKind.DIRTY_WORKTREE,
+            repository.observe(projectId).value.error?.kind
+        )
+        assertEquals("feature", repository.observe(projectId).value.status?.branch)
+
+        repository.switchBranch(
+            projectId,
+            "main",
+            dirtyEditorFiles = listOf("README.md")
+        )
+        awaitStatus { true }
+        assertEquals(
+            GitErrorKind.DIRTY_WORKTREE,
+            repository.observe(projectId).value.error?.kind
+        )
+        assertTrue(
+            repository.observe(projectId).value.error?.detail?.contains("README.md") == true
+        )
+        assertEquals("feature", repository.observe(projectId).value.status?.branch)
+    }
+
+    @Test
+    fun `refuses to delete an unmerged branch`() = runBlocking {
+        initializeRepository()
+        commitAll("initial")
+        repository.refresh(projectId)
+        repository.createBranch(projectId, "feature", null, false)
+        awaitStatus { it.status?.branch == "feature" }
+
+        File(projectDir, "README.md").appendText("feature work\n")
+        repository.refresh(projectId)
+        repository.stage(projectId, "README.md")
+        awaitStatus { it.status?.staged?.isNotEmpty() == true }
+        repository.commit(projectId, "feature work")
+        awaitStatus { it.status?.staged?.isEmpty() == true }
+
+        repository.switchBranch(projectId, "main")
+        awaitStatus { it.status?.branch == "main" }
+
+        repository.deleteBranch(projectId, "feature")
+        awaitStatus { true }
+
+        assertEquals(
+            GitErrorKind.BRANCH_NOT_MERGED,
+            repository.observe(projectId).value.error?.kind
+        )
+        val branches = (repository.branches(projectId) as GitBranchesResult.Success).branches
+        assertTrue(branches.local.any { it.name == "feature" })
     }
 
     private suspend fun initializeRepository() {

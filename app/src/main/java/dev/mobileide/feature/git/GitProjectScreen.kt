@@ -85,6 +85,7 @@ fun GitProjectScreen(
     val state by viewModel.state.collectAsStateWithLifecycle()
     val diffState by viewModel.diffState.collectAsStateWithLifecycle()
     val historyState by viewModel.history.collectAsStateWithLifecycle()
+    val branchesState by viewModel.branches.collectAsStateWithLifecycle()
     val commitDetailState by viewModel.commitDetail.collectAsStateWithLifecycle()
     var showInitDialog by rememberSaveable { mutableStateOf(false) }
     var showInstallDialog by rememberSaveable { mutableStateOf(false) }
@@ -104,10 +105,12 @@ fun GitProjectScreen(
     }
 
     LaunchedEffect(selectedTabOrdinal, state.availability) {
-        if (state.availability == GitAvailability.READY &&
-            selectedTab == GitPanelTab.HISTORY
-        ) {
-            viewModel.loadHistory()
+        if (state.availability == GitAvailability.READY) {
+            when (selectedTab) {
+                GitPanelTab.HISTORY -> viewModel.loadHistory()
+                GitPanelTab.BRANCHES -> viewModel.loadBranches()
+                else -> Unit
+            }
         }
     }
 
@@ -149,10 +152,12 @@ fun GitProjectScreen(
             onBack = onBack,
             onRefresh = {
                 viewModel.refresh()
-                if (state.availability == GitAvailability.READY &&
-                    selectedTab == GitPanelTab.HISTORY
-                ) {
-                    viewModel.loadHistory(force = true)
+                if (state.availability == GitAvailability.READY) {
+                    when (selectedTab) {
+                        GitPanelTab.HISTORY -> viewModel.loadHistory(force = true)
+                        GitPanelTab.BRANCHES -> viewModel.loadBranches(force = true)
+                        else -> Unit
+                    }
                 }
             },
             refreshEnabled = !state.isBusy
@@ -234,6 +239,14 @@ fun GitProjectScreen(
                         onQueryChange = viewModel::onHistoryQueryChanged,
                         onRetry = { viewModel.loadHistory(force = true) },
                         onOpenCommit = viewModel::openCommit
+                    )
+
+                    GitPanelTab.BRANCHES -> GitBranchesPanel(
+                        state = branchesState,
+                        onRefresh = { viewModel.loadBranches(force = true) },
+                        onCreate = viewModel::createBranch,
+                        onSwitch = viewModel::switchBranch,
+                        onDelete = viewModel::deleteBranch
                     )
                 }
             }
@@ -732,7 +745,8 @@ private fun MessageBanner(
 private enum class GitPanelTab(@StringRes val labelRes: Int) {
     OVERVIEW(R.string.git_tab_overview),
     CHANGES(R.string.git_tab_changes),
-    HISTORY(R.string.git_tab_history)
+    HISTORY(R.string.git_tab_history),
+    BRANCHES(R.string.git_tab_branches)
 }
 
 @Composable

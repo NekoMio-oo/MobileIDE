@@ -5,6 +5,8 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.viewModelScope
 import dev.mobileide.di.container
+import dev.mobileide.domain.git.GitChangeKind
+import dev.mobileide.domain.git.GitSnapshot
 import dev.mobileide.domain.repository.CreateProjectEntryResult
 import dev.mobileide.domain.repository.DeleteProjectEntryResult
 import dev.mobileide.domain.repository.EntryFailure
@@ -47,6 +49,7 @@ class FileExplorerViewModel(
     private val repository: ProjectRepository = container.projectRepository
     private val storageAccess = container.allFilesAccess
     private val tabManager = container.editorTabManager
+    private val git = container.gitRepository
     private val projectId: Long =
         savedStateHandle.get<String>("projectId")?.toLongOrNull() ?: 0L
 
@@ -71,6 +74,7 @@ class FileExplorerViewModel(
     private var listJob: Job? = null
     private var searchJob: Job? = null
     private var resumedOnce = false
+    private var gitObserved = false
 
     init {
         loadProject()
@@ -96,6 +100,7 @@ class FileExplorerViewModel(
             return
         }
         refresh(silent = true)
+        refreshGitStatus()
     }
 
     private fun loadProject() {
@@ -143,8 +148,65 @@ class FileExplorerViewModel(
 
             _uiState.update { it.copy(project = project, storageGranted = true) }
             runCatching { repository.markOpened(projectId) }
+            observeGitStatus()
+            refreshGitStatus()
             loadDirectoryInternal(initialDirectory, showLoading = true)
         }
+    }
+
+    private fun observeGitStatus() {
+        if (gitObserved) return
+        gitObserved = true
+        viewModelScope.launch {
+            git.observe(projectId).collect { snapshot ->
+                _uiState.update { it.copy(gitChanges = gitChangeMap(snapshot)) }
+            }
+        }
+    }
+
+    private fun refreshGitStatus() {
+        viewModelScope.launch {
+            if (git.isRepository(projectId)) {
+                git.refresh(projectId)
+            }
+        }
+    }
+
+    private fun gitChangeMap(snapshot: GitSnapshot): Map<String, GitChangeKind> {
+        val map = mutableMapOf<String, GitChangeKind>()
+        snapshot.status?.changes.orEmpty().forEach { change ->
+            map[change.path] = mergeGitKind(map[change.path], change.displayChange)
+            var parent = change.path.substringBeforeLast('/', "")
+            while (parent.isNotEmpty()) {
+                map[parent] = mergeGitKind(map[parent], change.displayChange)
+                parent = parent.substringBeforeLast('/', "")
+            }
+        }
+        return map
+    }
+
+    private fun mergeGitKind(
+        existing: GitChangeKind?,
+        incoming: GitChangeKind
+    ): GitChangeKind {
+        if (existing == null) return incoming
+        return if (gitKindPriority(incoming) > gitKindPriority(existing)) {
+            incoming
+        } else {
+            existing
+        }
+    }
+
+    private fun gitKindPriority(kind: GitChangeKind): Int = when (kind) {
+        GitChangeKind.CONFLICTED -> 7
+        GitChangeKind.MODIFIED -> 6
+        GitChangeKind.DELETED -> 5
+        GitChangeKind.RENAMED -> 4
+        GitChangeKind.COPIED -> 3
+        GitChangeKind.ADDED -> 2
+        GitChangeKind.UNTRACKED -> 1
+        GitChangeKind.TYPE_CHANGED -> 1
+        GitChangeKind.UNKNOWN -> 0
     }
 
     fun loadDirectory(path: String) {
@@ -594,6 +656,7 @@ class FileExplorerViewModel(
     }
 
     private fun refreshAfterChange() {
+        refreshGitStatus()
         if (_uiState.value.isSearchMode) {
             scheduleSearch()
         } else {

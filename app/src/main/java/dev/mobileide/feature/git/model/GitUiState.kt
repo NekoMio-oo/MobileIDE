@@ -1,5 +1,6 @@
 package dev.mobileide.feature.git.model
 
+import dev.mobileide.domain.git.GitBranch
 import dev.mobileide.domain.git.GitCommit
 import dev.mobileide.domain.git.GitCommitDetail
 import dev.mobileide.domain.git.GitError
@@ -31,5 +32,13 @@ data class GitCommitDetailUiState(
     val hash: String,
     val isLoading: Boolean = true,
     val detail: GitCommitDetail? = null,
+    val error: GitError? = null
+)
+
+/** Local and remote branches for the Branches tab. */
+data class GitBranchesUiState(
+    val isLoading: Boolean = false,
+    val local: List<GitBranch> = emptyList(),
+    val remote: List<GitBranch> = emptyList(),
     val error: GitError? = null
 )

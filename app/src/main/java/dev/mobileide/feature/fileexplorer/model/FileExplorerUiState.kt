@@ -2,6 +2,7 @@ package dev.mobileide.feature.fileexplorer.model
 
 import androidx.annotation.StringRes
 import dev.mobileide.R
+import dev.mobileide.domain.git.GitChangeKind
 import dev.mobileide.domain.model.Project
 import dev.mobileide.domain.repository.EntryFailure
 import dev.mobileide.domain.repository.ProjectFileEntry
@@ -61,6 +62,8 @@ data class FileExplorerUiState(
     val storageGranted: Boolean = true,
     val currentPath: String = "",
     val entries: List<ProjectFileEntry> = emptyList(),
+    /** Git state per project-relative file or folder; empty outside a repository. */
+    val gitChanges: Map<String, GitChangeKind> = emptyMap(),
     val error: ProjectFileError? = null,
     val errorDetail: String? = null,
 

@@ -1,6 +1,9 @@
 package dev.mobileide.data.git
 
 import dev.mobileide.domain.git.GitAvailability
+import dev.mobileide.domain.git.GitBranch
+import dev.mobileide.domain.git.GitBranches
+import dev.mobileide.domain.git.GitBranchesResult
 import dev.mobileide.domain.git.GitCommit
 import dev.mobileide.domain.git.GitCommitDetail
 import dev.mobileide.domain.git.GitCommitDetailResult
@@ -59,6 +62,9 @@ class GitRepositoryImpl(
 
     private val states = ConcurrentHashMap<Long, MutableStateFlow<GitSnapshot>>()
     private val operationLock = Any()
+
+    private val _revision = MutableStateFlow(0L)
+    override val revision: StateFlow<Long> = _revision.asStateFlow()
 
     private var busy = false
     private var operationJob: Job? = null
@@ -120,6 +126,7 @@ class GitRepositoryImpl(
             if (result.success) {
                 state.update { it.copy(message = "Git installed.", error = null) }
                 refreshInternal(projectId)
+                bumpRevision()
             } else {
                 state.update {
                     it.copy(
@@ -244,6 +251,7 @@ class GitRepositoryImpl(
 
             state.update { it.copy(message = "Repository initialized.", error = null) }
             refreshInternal(projectId)
+            bumpRevision()
         }
     }
 
@@ -264,6 +272,7 @@ class GitRepositoryImpl(
                 return@launchRepositoryOperation
             }
             refreshInternal(projectId)
+            bumpRevision()
         }
     }
 
@@ -284,6 +293,7 @@ class GitRepositoryImpl(
                 return@launchRepositoryOperation
             }
             refreshInternal(projectId)
+            bumpRevision()
         }
     }
 
@@ -315,6 +325,7 @@ class GitRepositoryImpl(
                 return@launchRepositoryOperation
             }
             refreshInternal(projectId)
+            bumpRevision()
         }
     }
 
@@ -352,6 +363,7 @@ class GitRepositoryImpl(
                 return@launchRepositoryOperation
             }
             refreshInternal(projectId)
+            bumpRevision()
         }
     }
 
@@ -406,6 +418,7 @@ class GitRepositoryImpl(
                     DeleteProjectEntryResult.Success -> {
                         state.update { it.copy(message = "Deleted ${change.path}.") }
                         refreshInternal(projectId)
+                        bumpRevision()
                     }
 
                     is DeleteProjectEntryResult.Failure -> {
@@ -414,6 +427,7 @@ class GitRepositoryImpl(
                                 it.copy(message = "${change.path} was already removed.")
                             }
                             refreshInternal(projectId)
+                            bumpRevision()
                         } else {
                             state.update {
                                 it.copy(
@@ -450,6 +464,7 @@ class GitRepositoryImpl(
                 }
                 state.update { it.copy(message = "Discarded changes for ${change.path}.") }
                 refreshInternal(projectId)
+                bumpRevision()
             }
         }
     }
@@ -602,6 +617,7 @@ class GitRepositoryImpl(
             }
             state.update { it.copy(message = "Commit created.") }
             refreshInternal(projectId)
+            bumpRevision()
         }
     }
 
@@ -801,6 +817,189 @@ class GitRepositoryImpl(
         )
     }
 
+    override suspend fun branches(projectId: Long): GitBranchesResult =
+        withContext(Dispatchers.IO) {
+            val project = runCatching { projects.getProject(projectId) }.getOrNull()
+            val projectPath = project?.path
+            if (projectPath.isNullOrBlank()) {
+                return@withContext GitBranchesResult.Failure(
+                    GitError(
+                        GitErrorKind.INVALID_PROJECT,
+                        "The project folder is not available."
+                    )
+                )
+            }
+            if (!linuxInstalled()) {
+                return@withContext GitBranchesResult.Failure(
+                    GitError(
+                        GitErrorKind.LINUX_MISSING,
+                        "Install the Linux environment first."
+                    )
+                )
+            }
+
+            val local = runner.run(
+                projectPath = projectPath,
+                args = listOf(
+                    "branch",
+                    "--format=%(refname:short)%1f%(HEAD)%1f%(objectname:short)" +
+                        "%1f%(upstream:short)%1f%(upstream:track)"
+                ),
+                options = GitRunOptions(timeoutMs = BRANCH_TIMEOUT_MS)
+            )
+            if (!local.isSuccess) {
+                return@withContext GitBranchesResult.Failure(
+                    errorFrom(local, "Could not load local branches.")
+                )
+            }
+            val remote = runner.run(
+                projectPath = projectPath,
+                args = listOf(
+                    "branch", "-r",
+                    "--format=%(refname:short)%1f%(objectname:short)"
+                ),
+                options = GitRunOptions(timeoutMs = BRANCH_TIMEOUT_MS)
+            )
+            if (!remote.isSuccess) {
+                return@withContext GitBranchesResult.Failure(
+                    errorFrom(remote, "Could not load remote branches.")
+                )
+            }
+            GitBranchesResult.Success(
+                GitBranches(
+                    local = GitBranchParser.parseLocal(local.stdout),
+                    remote = GitBranchParser.parseRemote(remote.stdout)
+                )
+            )
+        }
+
+    override fun createBranch(
+        projectId: Long,
+        name: String,
+        startPoint: String?,
+        track: Boolean,
+        dirtyEditorFiles: List<String>
+    ) {
+        val state = stateOf(projectId)
+        launchRepositoryOperation(
+            projectId = projectId,
+            kind = GitOperationKind.BRANCH,
+            title = "Creating branch",
+            detail = name
+        ) { projectPath ->
+            val branch = name.trim()
+            if (branch.isEmpty()) {
+                failOperation(projectId, GitError(GitErrorKind.UNKNOWN, "Enter a branch name."))
+                return@launchRepositoryOperation
+            }
+            if (track && startPoint.isNullOrBlank()) {
+                failOperation(
+                    projectId,
+                    GitError(GitErrorKind.UNKNOWN, "Select a remote branch to track.")
+                )
+                return@launchRepositoryOperation
+            }
+            val check = runner.run(
+                projectPath = projectPath,
+                args = listOf("check-ref-format", "--branch", branch),
+                options = GitRunOptions(timeoutMs = VALIDATION_TIMEOUT_MS)
+            )
+            if (!check.isSuccess) {
+                failOperation(
+                    projectId,
+                    GitError(
+                        kind = GitErrorKind.INVALID_PATH,
+                        message = "Invalid branch name: $branch",
+                        detail = errorDetail(check)
+                    )
+                )
+                return@launchRepositoryOperation
+            }
+            if (!startPoint.isNullOrBlank() || track) {
+                dirtyBranchError(state.value, dirtyEditorFiles)?.let { error ->
+                    failOperation(projectId, error)
+                    return@launchRepositoryOperation
+                }
+            }
+            val args = buildList {
+                add("switch")
+                add("-c")
+                add(branch)
+                if (track) add("--track")
+                startPoint?.takeIf { it.isNotBlank() }?.let { add(it) }
+            }
+            val result = runner.run(
+                projectPath = projectPath,
+                args = args,
+                options = GitRunOptions(timeoutMs = MUTATION_TIMEOUT_MS, readOnly = false)
+            )
+            if (!result.isSuccess) {
+                failOperation(
+                    projectId,
+                    errorFrom(result, "Could not create branch $branch.")
+                )
+                return@launchRepositoryOperation
+            }
+            state.update { it.copy(message = "Created branch $branch.") }
+            refreshInternal(projectId)
+            bumpRevision()
+        }
+    }
+
+    override fun switchBranch(
+        projectId: Long,
+        name: String,
+        dirtyEditorFiles: List<String>
+    ) {
+        val state = stateOf(projectId)
+        launchRepositoryOperation(
+            projectId = projectId,
+            kind = GitOperationKind.BRANCH,
+            title = "Switching branch",
+            detail = name
+        ) { projectPath ->
+            dirtyBranchError(state.value, dirtyEditorFiles)?.let { error ->
+                failOperation(projectId, error)
+                return@launchRepositoryOperation
+            }
+            val result = runner.run(
+                projectPath = projectPath,
+                args = listOf("switch", name),
+                options = GitRunOptions(timeoutMs = MUTATION_TIMEOUT_MS, readOnly = false)
+            )
+            if (!result.isSuccess) {
+                failOperation(projectId, errorFrom(result, "Could not switch to $name."))
+                return@launchRepositoryOperation
+            }
+            state.update { it.copy(message = "Switched to $name.") }
+            refreshInternal(projectId)
+            bumpRevision()
+        }
+    }
+
+    override fun deleteBranch(projectId: Long, name: String) {
+        val state = stateOf(projectId)
+        launchRepositoryOperation(
+            projectId = projectId,
+            kind = GitOperationKind.BRANCH,
+            title = "Deleting branch",
+            detail = name
+        ) { projectPath ->
+            val result = runner.run(
+                projectPath = projectPath,
+                args = listOf("branch", "-d", name),
+                options = GitRunOptions(timeoutMs = MUTATION_TIMEOUT_MS, readOnly = false)
+            )
+            if (!result.isSuccess) {
+                failOperation(projectId, errorFrom(result, "Could not delete branch $name."))
+                return@launchRepositoryOperation
+            }
+            state.update { it.copy(message = "Deleted branch $name.") }
+            refreshInternal(projectId)
+            bumpRevision()
+        }
+    }
+
     override fun cancelOperation() {
         val job = synchronized(operationLock) { operationJob }
         job?.cancel()
@@ -843,6 +1042,31 @@ class GitRepositoryImpl(
 
     private fun failOperation(projectId: Long, error: GitError) {
         stateOf(projectId).update { it.copy(error = error) }
+    }
+
+    private fun bumpRevision() {
+        _revision.update { it + 1 }
+    }
+
+    private fun dirtyBranchError(
+        state: GitSnapshot,
+        dirtyEditorFiles: List<String>
+    ): GitError? {
+        if (dirtyEditorFiles.isNotEmpty()) {
+            return GitError(
+                kind = GitErrorKind.DIRTY_WORKTREE,
+                message = "Save or discard unsaved editor changes first.",
+                detail = dirtyEditorFiles.joinToString("\n").take(MAX_ERROR_DETAIL)
+            )
+        }
+        val status = state.status ?: return null
+        if (status.staged.isNotEmpty() || status.unstaged.isNotEmpty()) {
+            return GitError(
+                GitErrorKind.DIRTY_WORKTREE,
+                "Commit or discard changes before switching branches."
+            )
+        }
+        return null
     }
 
     private suspend fun hasHeadCommit(projectPath: String): Boolean =
@@ -1243,6 +1467,7 @@ class GitRepositoryImpl(
         const val DIFF_TIMEOUT_MS = 60_000L
         const val MAX_UNTRACKED_DIFF_LINES = 5_000
         const val HISTORY_TIMEOUT_MS = 60_000L
+        const val BRANCH_TIMEOUT_MS = 60_000L
         const val MAX_HISTORY_LIMIT = 1_000
         const val MAX_COMMIT_FILES = 1_000
         const val HISTORY_FORMAT =

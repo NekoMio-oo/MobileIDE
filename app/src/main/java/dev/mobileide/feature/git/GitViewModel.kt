@@ -4,7 +4,9 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.viewModelScope
+import dev.mobileide.data.editor.EditorTabManager
 import dev.mobileide.di.container
+import dev.mobileide.domain.git.GitBranchesResult
 import dev.mobileide.domain.git.GitCommit
 import dev.mobileide.domain.git.GitCommitDetailResult
 import dev.mobileide.domain.git.GitDiffResult
@@ -12,6 +14,7 @@ import dev.mobileide.domain.git.GitFileChange
 import dev.mobileide.domain.git.GitHistoryResult
 import dev.mobileide.domain.git.GitRepository
 import dev.mobileide.domain.git.GitSnapshot
+import dev.mobileide.feature.git.model.GitBranchesUiState
 import dev.mobileide.feature.git.model.GitCommitDetailUiState
 import dev.mobileide.feature.git.model.GitDiffRequest
 import dev.mobileide.feature.git.model.GitDiffUiState
@@ -20,6 +23,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -30,6 +34,7 @@ class GitViewModel(
 ) : AndroidViewModel(application) {
 
     private val repository: GitRepository = application.container.gitRepository
+    private val tabManager: EditorTabManager = application.container.editorTabManager
     private val projectId: Long =
         savedStateHandle.get<String>("projectId")?.toLongOrNull() ?: 0L
 
@@ -48,10 +53,22 @@ class GitViewModel(
     val commitDetail: StateFlow<GitCommitDetailUiState?> = _commitDetail.asStateFlow()
     private val commitBackStack = ArrayDeque<String>()
 
+    private val _branches = MutableStateFlow(GitBranchesUiState())
+    val branches: StateFlow<GitBranchesUiState> = _branches.asStateFlow()
+    private var branchesLoaded = false
+    private var branchesJob: Job? = null
+    private var branchesReloadRequested = false
+
     private var resumedOnce = false
 
     init {
         viewModelScope.launch { repository.refresh(projectId) }
+        viewModelScope.launch {
+            repository.revision.drop(1).collect {
+                historyLoaded = false
+                if (branchesLoaded) loadBranches(force = true)
+            }
+        }
     }
 
     /** Re-checks after returning from Runtimes; the first resume is the init load. */
@@ -99,6 +116,68 @@ class GitViewModel(
         repository.commit(projectId, message)
         historyLoaded = false
     }
+
+    // ---- branches ---------------------------------------------------------
+
+    fun loadBranches(force: Boolean = false) {
+        if (branchesJob?.isActive == true) {
+            if (force) branchesReloadRequested = true
+            return
+        }
+        if (branchesLoaded && !force) return
+        branchesJob = viewModelScope.launch {
+            _branches.update { it.copy(isLoading = true, error = null) }
+            when (val result = repository.branches(projectId)) {
+                is GitBranchesResult.Success -> {
+                    branchesLoaded = true
+                    _branches.update {
+                        it.copy(
+                            isLoading = false,
+                            local = result.branches.local,
+                            remote = result.branches.remote,
+                            error = null
+                        )
+                    }
+                }
+
+                is GitBranchesResult.Failure -> {
+                    _branches.update { it.copy(isLoading = false, error = result.error) }
+                }
+            }
+            branchesJob = null
+            if (branchesReloadRequested) {
+                branchesReloadRequested = false
+                loadBranches(force = true)
+            }
+        }
+    }
+
+    fun createBranch(name: String, startPoint: String?, track: Boolean) {
+        repository.createBranch(
+            projectId = projectId,
+            name = name,
+            startPoint = startPoint,
+            track = track,
+            dirtyEditorFiles = dirtyEditorFiles()
+        )
+    }
+
+    fun switchBranch(name: String) {
+        repository.switchBranch(
+            projectId = projectId,
+            name = name,
+            dirtyEditorFiles = dirtyEditorFiles()
+        )
+    }
+
+    fun deleteBranch(name: String) {
+        repository.deleteBranch(projectId, name)
+    }
+
+    private fun dirtyEditorFiles(): List<String> =
+        tabManager.tabs(projectId)
+            .filter { it.isDirty }
+            .map { it.name }
 
     // ---- history ----------------------------------------------------------
 

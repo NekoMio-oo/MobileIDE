@@ -306,7 +306,8 @@ private fun DirectoryContent(
                                 onClick = { onEntryClick(entry) },
                                 onRename = { onRename(entry) },
                                 onInfo = { onInfo(entry) },
-                                onDelete = { onDelete(entry) }
+                                onDelete = { onDelete(entry) },
+                                gitChange = state.gitChanges[entry.path]
                             )
                             if (index < state.entries.lastIndex) {
                                 HorizontalDivider(
