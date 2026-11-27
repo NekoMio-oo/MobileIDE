@@ -107,6 +107,7 @@ enum class GitOperationKind {
     REFRESH,
     STAGE,
     UNSTAGE,
+    DISCARD,
     COMMIT,
     BRANCH,
     FETCH,
@@ -130,6 +131,8 @@ enum class GitErrorKind {
     NOT_A_REPO,
     INVALID_PROJECT,
     INVALID_PATH,
+    NOT_FOUND,
+    PERMISSION_DENIED,
     AUTH_FAILED,
     NETWORK,
     CONFLICT,
@@ -182,4 +185,71 @@ data class GitInstallResult(
 sealed interface GitActionResult {
     data object Success : GitActionResult
     data class Failure(val error: GitError) : GitActionResult
+}
+
+// ---- Diff -------------------------------------------------------------------
+
+enum class GitDiffLineKind {
+    CONTEXT,
+    ADDED,
+    REMOVED
+}
+
+/**
+ * One rendered diff line. [oldLine] and [newLine] are null on the side where the
+ * line does not exist, which keeps the two gutter columns independent.
+ */
+data class GitDiffLine(
+    val kind: GitDiffLineKind,
+    val text: String,
+    val oldLine: Int? = null,
+    val newLine: Int? = null
+)
+
+data class GitDiffHunk(
+    val header: String,
+    val oldStart: Int,
+    val oldCount: Int,
+    val newStart: Int,
+    val newCount: Int,
+    val lines: List<GitDiffLine> = emptyList()
+)
+
+data class GitDiffFile(
+    val path: String,
+    val oldPath: String? = null,
+    val isBinary: Boolean = false,
+    /** The file exceeds the editor/preview limit and was not read. */
+    val isTooLarge: Boolean = false,
+    val hunks: List<GitDiffHunk> = emptyList()
+) {
+    val addedLines: Int
+        get() = hunks.sumOf { hunk ->
+            hunk.lines.count { it.kind == GitDiffLineKind.ADDED }
+        }
+
+    val removedLines: Int
+        get() = hunks.sumOf { hunk ->
+            hunk.lines.count { it.kind == GitDiffLineKind.REMOVED }
+        }
+}
+
+data class GitDiff(
+    val files: List<GitDiffFile>,
+    /** The output was cut at the line/byte cap. */
+    val truncated: Boolean = false
+) {
+    val addedLines: Int
+        get() = files.sumOf { it.addedLines }
+
+    val removedLines: Int
+        get() = files.sumOf { it.removedLines }
+
+    val hasContent: Boolean
+        get() = files.any { it.hunks.isNotEmpty() || it.isBinary || it.isTooLarge }
+}
+
+sealed interface GitDiffResult {
+    data class Success(val diff: GitDiff) : GitDiffResult
+    data class Failure(val error: GitError) : GitDiffResult
 }

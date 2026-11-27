@@ -1,10 +1,13 @@
 package dev.mobileide.feature.git
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -20,6 +23,7 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -33,6 +37,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -75,9 +80,11 @@ fun GitProjectScreen(
     viewModel: GitViewModel = viewModel()
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val diffState by viewModel.diffState.collectAsStateWithLifecycle()
     var showInitDialog by rememberSaveable { mutableStateOf(false) }
     var showInstallDialog by rememberSaveable { mutableStateOf(false) }
     var branchInput by rememberSaveable { mutableStateOf("main") }
+    var discardTarget by remember { mutableStateOf<GitFileChange?>(null) }
 
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
@@ -86,6 +93,19 @@ fun GitProjectScreen(
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    BackHandler(enabled = diffState != null) { viewModel.closeDiff() }
+
+    val currentDiff = diffState
+    if (currentDiff != null) {
+        GitDiffScreen(
+            state = currentDiff,
+            onBack = viewModel::closeDiff,
+            onRetry = viewModel::retryDiff,
+            modifier = modifier
+        )
+        return
     }
 
     Column(modifier = modifier.fillMaxSize()) {
@@ -145,7 +165,16 @@ fun GitProjectScreen(
                 onRetry = viewModel::refresh
             )
 
-            else -> GitOverviewContent(state)
+            else -> GitOverviewContent(
+                state = state,
+                busy = state.isBusy,
+                onStage = viewModel::stage,
+                onUnstage = viewModel::unstage,
+                onStageAll = viewModel::stageAll,
+                onUnstageAll = viewModel::unstageAll,
+                onDiscard = { discardTarget = it },
+                onOpenDiff = viewModel::openDiff
+            )
         }
     }
 
@@ -209,6 +238,60 @@ fun GitProjectScreen(
                     onClick = { showInstallDialog = false },
                     enabled = !state.isBusy
                 ) {
+                    Text(stringResource(R.string.git_cancel))
+                }
+            }
+        )
+    }
+
+    discardTarget?.let { change ->
+        val untracked = change.untracked
+        AlertDialog(
+            onDismissRequest = { discardTarget = null },
+            title = {
+                Text(
+                    stringResource(
+                        if (untracked) {
+                            R.string.git_discard_untracked_title
+                        } else {
+                            R.string.git_discard_title
+                        }
+                    )
+                )
+            },
+            text = {
+                Text(
+                    stringResource(
+                        if (untracked) {
+                            R.string.git_discard_untracked_message
+                        } else {
+                            R.string.git_discard_message
+                        },
+                        change.path
+                    )
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        discardTarget = null
+                        viewModel.discard(change)
+                    }
+                ) {
+                    Text(
+                        text = stringResource(
+                            if (untracked) {
+                                R.string.git_delete_confirm
+                            } else {
+                                R.string.git_discard_confirm
+                            }
+                        ),
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { discardTarget = null }) {
                     Text(stringResource(R.string.git_cancel))
                 }
             }
@@ -585,7 +668,16 @@ private fun MessageBanner(
 }
 
 @Composable
-private fun GitOverviewContent(state: GitSnapshot) {
+private fun GitOverviewContent(
+    state: GitSnapshot,
+    busy: Boolean,
+    onStage: (GitFileChange) -> Unit,
+    onUnstage: (GitFileChange) -> Unit,
+    onStageAll: () -> Unit,
+    onUnstageAll: () -> Unit,
+    onDiscard: (GitFileChange) -> Unit,
+    onOpenDiff: (GitFileChange, Boolean) -> Unit
+) {
     Box(
         modifier = Modifier.fillMaxSize(),
         contentAlignment = Alignment.TopCenter
@@ -602,7 +694,16 @@ private fun GitOverviewContent(state: GitSnapshot) {
             verticalArrangement = Arrangement.spacedBy(MobileIdeSpacing.md)
         ) {
             RepositoryCard(state)
-            ChangesCard(state.status)
+            ChangesCard(
+                status = state.status,
+                busy = busy,
+                onStage = onStage,
+                onUnstage = onUnstage,
+                onStageAll = onStageAll,
+                onUnstageAll = onUnstageAll,
+                onDiscard = onDiscard,
+                onOpenDiff = onOpenDiff
+            )
         }
     }
 }
@@ -692,8 +793,20 @@ private fun RepositoryCard(state: GitSnapshot) {
 }
 
 @Composable
-private fun ChangesCard(status: GitRepoStatus?) {
+private fun ChangesCard(
+    status: GitRepoStatus?,
+    busy: Boolean,
+    onStage: (GitFileChange) -> Unit,
+    onUnstage: (GitFileChange) -> Unit,
+    onStageAll: () -> Unit,
+    onUnstageAll: () -> Unit,
+    onDiscard: (GitFileChange) -> Unit,
+    onOpenDiff: (GitFileChange, Boolean) -> Unit
+) {
     val current = status ?: GitRepoStatus()
+    val hasConflicts = current.conflicted.isNotEmpty()
+    val compactPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)
+
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.medium,
@@ -719,57 +832,166 @@ private fun ChangesCard(status: GitRepoStatus?) {
                 )
             }
 
-            Spacer(Modifier.height(MobileIdeSpacing.sm))
-
             if (current.changes.isEmpty()) {
+                Spacer(Modifier.height(MobileIdeSpacing.sm))
                 Text(
                     text = stringResource(R.string.git_clean),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-            } else {
-                Text(
-                    text = stringResource(
-                        R.string.git_change_summary,
-                        current.staged.size,
-                        current.unstaged.size,
-                        current.untracked.size,
-                        current.conflicted.size
-                    ),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Spacer(Modifier.height(MobileIdeSpacing.sm))
+                return@Column
+            }
 
-                current.changes.take(MAX_VISIBLE_CHANGES).forEach { change ->
-                    GitChangeRow(change)
+            if (hasConflicts) {
+                Spacer(Modifier.height(MobileIdeSpacing.sm))
+                Text(
+                    text = stringResource(R.string.git_conflict_warning),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.error
+                )
+            }
+
+            ChangeSection(
+                title = stringResource(R.string.git_section_staged),
+                changes = current.staged,
+                busy = busy,
+                primaryLabel = stringResource(R.string.git_unstage),
+                onPrimary = onUnstage,
+                onOpen = { change -> onOpenDiff(change, true) },
+                compactPadding = compactPadding
+            )
+            ChangeSection(
+                title = stringResource(R.string.git_section_unstaged),
+                changes = current.unstaged,
+                busy = busy,
+                primaryLabel = stringResource(R.string.git_stage),
+                onPrimary = onStage,
+                discardLabel = stringResource(R.string.git_discard),
+                onDiscard = onDiscard,
+                onOpen = { change -> onOpenDiff(change, false) },
+                compactPadding = compactPadding
+            )
+            ChangeSection(
+                title = stringResource(R.string.git_section_untracked),
+                changes = current.untracked,
+                busy = busy,
+                primaryLabel = stringResource(R.string.git_stage),
+                onPrimary = onStage,
+                discardLabel = stringResource(R.string.git_delete),
+                onDiscard = onDiscard,
+                onOpen = { change -> onOpenDiff(change, false) },
+                compactPadding = compactPadding
+            )
+            ChangeSection(
+                title = stringResource(R.string.git_section_conflicted),
+                changes = current.conflicted,
+                busy = busy,
+                compactPadding = compactPadding
+            )
+
+            if (!hasConflicts &&
+                (current.staged.isNotEmpty() ||
+                    current.unstaged.isNotEmpty() ||
+                    current.untracked.isNotEmpty())
+            ) {
+                Spacer(Modifier.height(MobileIdeSpacing.xs))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    if (current.unstaged.isNotEmpty() || current.untracked.isNotEmpty()) {
+                        TextButton(
+                            onClick = onStageAll,
+                            enabled = !busy,
+                            contentPadding = compactPadding
+                        ) {
+                            Text(
+                                text = stringResource(R.string.git_stage_all),
+                                style = MaterialTheme.typography.labelSmall
+                            )
+                        }
+                    }
+                    if (current.staged.isNotEmpty()) {
+                        TextButton(
+                            onClick = onUnstageAll,
+                            enabled = !busy,
+                            contentPadding = compactPadding
+                        ) {
+                            Text(
+                                text = stringResource(R.string.git_unstage_all),
+                                style = MaterialTheme.typography.labelSmall
+                            )
+                        }
+                    }
                 }
-                if (current.changes.size > MAX_VISIBLE_CHANGES) {
-                    Spacer(Modifier.height(MobileIdeSpacing.sm))
-                    Text(
-                        text = stringResource(
-                            R.string.git_more_changes,
-                            current.changes.size - MAX_VISIBLE_CHANGES
-                        ),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                if (current.truncated) {
-                    Spacer(Modifier.height(MobileIdeSpacing.sm))
-                    Text(
-                        text = stringResource(R.string.git_changes_truncated),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.error
-                    )
-                }
+            }
+
+            if (current.truncated) {
+                Spacer(Modifier.height(MobileIdeSpacing.sm))
+                Text(
+                    text = stringResource(R.string.git_changes_truncated),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.error
+                )
             }
         }
     }
 }
 
 @Composable
-private fun GitChangeRow(change: GitFileChange) {
+private fun ChangeSection(
+    title: String,
+    changes: List<GitFileChange>,
+    busy: Boolean,
+    primaryLabel: String? = null,
+    onPrimary: ((GitFileChange) -> Unit)? = null,
+    discardLabel: String? = null,
+    onDiscard: ((GitFileChange) -> Unit)? = null,
+    onOpen: ((GitFileChange) -> Unit)? = null,
+    compactPadding: PaddingValues
+) {
+    if (changes.isEmpty()) return
+    Spacer(Modifier.height(MobileIdeSpacing.md))
+    Text(
+        text = stringResource(R.string.git_section_count, title, changes.size),
+        style = MaterialTheme.typography.titleSmall,
+        color = MaterialTheme.colorScheme.onSurface
+    )
+    changes.take(MAX_VISIBLE_CHANGES).forEach { change ->
+        GitChangeRow(
+            change = change,
+            busy = busy,
+            primaryLabel = primaryLabel,
+            onPrimary = onPrimary?.let { action -> { action(change) } },
+            discardLabel = discardLabel,
+            onDiscard = onDiscard?.let { action -> { action(change) } },
+            onOpen = onOpen?.let { action -> { action(change) } },
+            compactPadding = compactPadding
+        )
+    }
+    if (changes.size > MAX_VISIBLE_CHANGES) {
+        Text(
+            text = stringResource(
+                R.string.git_more_changes,
+                changes.size - MAX_VISIBLE_CHANGES
+            ),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+}
+
+@Composable
+private fun GitChangeRow(
+    change: GitFileChange,
+    busy: Boolean,
+    primaryLabel: String?,
+    onPrimary: (() -> Unit)?,
+    discardLabel: String?,
+    onDiscard: (() -> Unit)?,
+    onOpen: (() -> Unit)?,
+    compactPadding: PaddingValues
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -784,7 +1006,17 @@ private fun GitChangeRow(change: GitFileChange) {
                 .background(changeColor(change.displayChange))
         )
         Spacer(Modifier.width(MobileIdeSpacing.sm))
-        Column(modifier = Modifier.weight(1f)) {
+        val openModifier = if (onOpen != null) {
+            Modifier.clickable(enabled = !busy, onClick = onOpen)
+        } else {
+            Modifier
+        }
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .then(openModifier)
+                .padding(vertical = 2.dp)
+        ) {
             Text(
                 text = changeLabel(change),
                 style = MaterialTheme.typography.bodySmall.copy(
@@ -799,6 +1031,33 @@ private fun GitChangeRow(change: GitFileChange) {
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+        }
+        if (primaryLabel != null && onPrimary != null) {
+            TextButton(
+                onClick = onPrimary,
+                enabled = !busy,
+                contentPadding = compactPadding
+            ) {
+                Text(
+                    text = primaryLabel,
+                    style = MaterialTheme.typography.labelSmall
+                )
+            }
+        }
+        if (discardLabel != null && onDiscard != null) {
+            TextButton(
+                onClick = onDiscard,
+                enabled = !busy,
+                contentPadding = compactPadding,
+                colors = ButtonDefaults.textButtonColors(
+                    contentColor = MaterialTheme.colorScheme.error
+                )
+            ) {
+                Text(
+                    text = discardLabel,
+                    style = MaterialTheme.typography.labelSmall
+                )
+            }
         }
     }
 }

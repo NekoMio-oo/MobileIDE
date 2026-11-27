@@ -7,7 +7,10 @@ import dev.mobileide.data.local.ProjectEntity
 import dev.mobileide.data.repository.ProjectRepositoryImpl
 import dev.mobileide.domain.git.GitAvailability
 import dev.mobileide.domain.git.GitChangeKind
+import dev.mobileide.domain.git.GitDiffResult
+import dev.mobileide.domain.git.GitErrorKind
 import dev.mobileide.domain.git.GitInstallResult
+import dev.mobileide.domain.git.GitSnapshot
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -144,6 +147,170 @@ class GitRepositoryImplTest {
         assertTrue(status.untracked.isEmpty())
     }
 
+    @Test
+    fun `stages and unstages a file in a repository without commits`() = runBlocking {
+        initializeRepository()
+        File(projectDir, "notes.txt").writeText("hello\n")
+        repository.refresh(projectId)
+        val untracked = repository.observe(projectId).value.status!!
+            .untracked.single { it.path == "notes.txt" }
+
+        repository.stage(projectId, untracked.path)
+        var state = awaitStatus {
+            it.status?.staged?.any { change -> change.path == "notes.txt" } == true
+        }
+        assertEquals(listOf("notes.txt"), state.status!!.staged.map { it.path })
+
+        repository.unstage(projectId, "notes.txt")
+        state = awaitStatus {
+            it.status?.untracked?.any { change -> change.path == "notes.txt" } == true
+        }
+        assertTrue(state.status!!.untracked.any { it.path == "notes.txt" })
+        assertTrue(state.status!!.staged.isEmpty())
+    }
+
+    @Test
+    fun `stages all and unstages all after the first commit`() = runBlocking {
+        initializeRepository()
+        commitAll("initial")
+        repository.refresh(projectId)
+        File(projectDir, "a.txt").writeText("a\n")
+        File(projectDir, "b.txt").writeText("b\n")
+        repository.refresh(projectId)
+
+        repository.stageAll(projectId)
+        var state = awaitStatus { it.status?.staged?.size == 2 }
+        assertEquals(setOf("a.txt", "b.txt"), state.status!!.staged.map { it.path }.toSet())
+
+        repository.unstageAll(projectId)
+        state = awaitStatus { it.status?.untracked?.size == 2 }
+        assertEquals(setOf("a.txt", "b.txt"), state.status!!.untracked.map { it.path }.toSet())
+    }
+
+    @Test
+    fun `unstages with a reset when the repository has a commit`() = runBlocking {
+        initializeRepository()
+        commitAll("initial")
+        repository.refresh(projectId)
+        File(projectDir, "README.md").appendText("seed\n")
+        repository.refresh(projectId)
+
+        repository.stage(projectId, "README.md")
+        var state = awaitStatus {
+            it.status?.staged?.any { change -> change.path == "README.md" } == true
+        }
+        assertTrue(state.status!!.unstaged.isEmpty())
+
+        repository.unstage(projectId, "README.md")
+        state = awaitStatus {
+            it.status?.unstaged?.any { change -> change.path == "README.md" } == true
+        }
+        assertTrue(state.status!!.staged.isEmpty())
+    }
+
+    @Test
+    fun `discards an unstaged tracked modification after confirmation`() = runBlocking {
+        initializeRepository()
+        commitAll("initial")
+        repository.refresh(projectId)
+        val file = File(projectDir, "README.md")
+        val original = file.readText()
+        file.appendText("do not keep\n")
+        repository.refresh(projectId)
+        val change = repository.observe(projectId).value.status!!
+            .unstaged.single { it.path == "README.md" }
+
+        repository.discardChanges(projectId, change, confirmed = true)
+
+        awaitStatus { it.status?.unstaged?.isEmpty() == true }
+        assertEquals(original, file.readText())
+    }
+
+    @Test
+    fun `deletes an untracked file only when confirmed`() = runBlocking {
+        initializeRepository()
+        val file = File(projectDir, "scratch.txt").apply { writeText("temp\n") }
+        repository.refresh(projectId)
+        val change = repository.observe(projectId).value.status!!
+            .untracked.single { it.path == "scratch.txt" }
+
+        repository.discardChanges(projectId, change, confirmed = false)
+        assertTrue(file.exists())
+        assertEquals(
+            GitErrorKind.UNKNOWN,
+            repository.observe(projectId).value.error?.kind
+        )
+
+        repository.discardChanges(projectId, change, confirmed = true)
+        awaitStatus {
+            it.status?.untracked?.none { item -> item.path == "scratch.txt" } == true
+        }
+        assertFalse(file.exists())
+    }
+
+    @Test
+    fun `returns staged and worktree diffs for a real modification`() = runBlocking {
+        initializeRepository()
+        commitAll("initial")
+        repository.refresh(projectId)
+        val file = File(projectDir, "README.md")
+        file.writeText("# demo\n\nchanged\n")
+        repository.refresh(projectId)
+        val change = repository.observe(projectId).value.status!!
+            .unstaged.single { it.path == "README.md" }
+
+        val worktree = repository.diff(projectId, change, staged = false)
+        assertTrue(worktree is GitDiffResult.Success)
+        val worktreeDiff = (worktree as GitDiffResult.Success).diff
+        assertEquals("README.md", worktreeDiff.files.single().path)
+        assertTrue(worktreeDiff.addedLines >= 1)
+
+        repository.stage(projectId, "README.md")
+        val state = awaitStatus {
+            it.status?.staged?.any { item -> item.path == "README.md" } == true
+        }
+        val stagedChange = state.status!!.staged.single { it.path == "README.md" }
+        val staged = repository.diff(projectId, stagedChange, staged = true)
+        assertTrue(staged is GitDiffResult.Success)
+        assertTrue((staged as GitDiffResult.Success).diff.addedLines >= 1)
+    }
+
+    @Test
+    fun `renders an untracked file as all added lines`() = runBlocking {
+        initializeRepository()
+        File(projectDir, "new.txt").writeText("one\ntwo\n")
+        repository.refresh(projectId)
+        val change = repository.observe(projectId).value.status!!
+            .untracked.single { it.path == "new.txt" }
+
+        val result = repository.diff(projectId, change, staged = false)
+
+        assertTrue(result is GitDiffResult.Success)
+        val diff = (result as GitDiffResult.Success).diff
+        assertEquals(2, diff.addedLines)
+        assertEquals(0, diff.removedLines)
+        assertEquals(
+            listOf(1, 2),
+            diff.files.single().hunks.single().lines.map { it.newLine }
+        )
+    }
+
+    @Test
+    fun `reports an untracked binary file without text hunks`() = runBlocking {
+        initializeRepository()
+        File(projectDir, "image.png").writeBytes(
+            byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47, 0x00, 0x00)
+        )
+        repository.refresh(projectId)
+        val change = repository.observe(projectId).value.status!!
+            .untracked.single { it.path == "image.png" }
+
+        val result = repository.diff(projectId, change, staged = false)
+
+        assertTrue(result is GitDiffResult.Success)
+        assertTrue((result as GitDiffResult.Success).diff.files.single().isBinary)
+    }
+
     private suspend fun initializeRepository() {
         repository.initRepository(projectId, "main")
         withTimeout(20_000) {
@@ -151,6 +318,33 @@ class GitRepositoryImplTest {
                 it.availability == GitAvailability.READY && !it.isBusy
             }
         }
+    }
+
+    private suspend fun awaitStatus(predicate: (GitSnapshot) -> Boolean): GitSnapshot =
+        withTimeout(20_000) {
+            repository.observe(projectId).first { !it.isBusy && predicate(it) }
+        }
+
+    private suspend fun commitAll(message: String) {
+        val runner = LocalGitRunner()
+        assertTrue(
+            runner.run(
+                projectPath = projectDir.absolutePath,
+                args = listOf("add", "-A"),
+                options = GitRunOptions(readOnly = false)
+            ).isSuccess
+        )
+        assertTrue(
+            runner.run(
+                projectPath = projectDir.absolutePath,
+                args = listOf(
+                    "-c", "user.name=MobileIDE Test",
+                    "-c", "user.email=test@example.com",
+                    "commit", "-m", message
+                ),
+                options = GitRunOptions(readOnly = false)
+            ).isSuccess
+        )
     }
 
     private fun assumeGit() {

@@ -1,14 +1,25 @@
 package dev.mobileide.data.git
 
 import dev.mobileide.domain.git.GitAvailability
+import dev.mobileide.domain.git.GitDiff
+import dev.mobileide.domain.git.GitDiffFile
+import dev.mobileide.domain.git.GitDiffHunk
+import dev.mobileide.domain.git.GitDiffLine
+import dev.mobileide.domain.git.GitDiffLineKind
+import dev.mobileide.domain.git.GitDiffResult
 import dev.mobileide.domain.git.GitError
 import dev.mobileide.domain.git.GitErrorKind
+import dev.mobileide.domain.git.GitFileChange
 import dev.mobileide.domain.git.GitOperation
 import dev.mobileide.domain.git.GitOperationKind
 import dev.mobileide.domain.git.GitRepoInfo
 import dev.mobileide.domain.git.GitRepository
 import dev.mobileide.domain.git.GitSnapshot
+import dev.mobileide.domain.repository.DeleteProjectEntryResult
+import dev.mobileide.domain.repository.EntryFailure
+import dev.mobileide.domain.repository.ProjectFileError
 import dev.mobileide.domain.repository.ProjectRepository
+import dev.mobileide.domain.repository.ReadProjectFileResult
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
@@ -232,6 +243,301 @@ class GitRepositoryImpl(
         }
     }
 
+    override fun stage(projectId: Long, path: String) {
+        launchRepositoryOperation(
+            projectId = projectId,
+            kind = GitOperationKind.STAGE,
+            title = "Staging changes",
+            detail = path
+        ) { projectPath ->
+            val result = runner.run(
+                projectPath = projectPath,
+                args = listOf("add", "-A", "--", path),
+                options = GitRunOptions(timeoutMs = MUTATION_TIMEOUT_MS, readOnly = false)
+            )
+            if (!result.isSuccess) {
+                failOperation(projectId, errorFrom(result, "Could not stage $path."))
+                return@launchRepositoryOperation
+            }
+            refreshInternal(projectId)
+        }
+    }
+
+    override fun unstage(projectId: Long, path: String) {
+        launchRepositoryOperation(
+            projectId = projectId,
+            kind = GitOperationKind.UNSTAGE,
+            title = "Unstaging changes",
+            detail = path
+        ) { projectPath ->
+            val result = runner.run(
+                projectPath = projectPath,
+                args = unstageArgs(projectPath, path),
+                options = GitRunOptions(timeoutMs = MUTATION_TIMEOUT_MS, readOnly = false)
+            )
+            if (!result.isSuccess) {
+                failOperation(projectId, errorFrom(result, "Could not unstage $path."))
+                return@launchRepositoryOperation
+            }
+            refreshInternal(projectId)
+        }
+    }
+
+    override fun stageAll(projectId: Long) {
+        val state = stateOf(projectId)
+        if (state.value.status?.conflicted?.isNotEmpty() == true) {
+            state.update {
+                it.copy(
+                    error = GitError(
+                        GitErrorKind.CONFLICT,
+                        "Resolve conflicted files before staging everything."
+                    )
+                )
+            }
+            return
+        }
+        launchRepositoryOperation(
+            projectId = projectId,
+            kind = GitOperationKind.STAGE,
+            title = "Staging all changes"
+        ) { projectPath ->
+            val result = runner.run(
+                projectPath = projectPath,
+                args = listOf("add", "-A", "--", "."),
+                options = GitRunOptions(timeoutMs = MUTATION_TIMEOUT_MS, readOnly = false)
+            )
+            if (!result.isSuccess) {
+                failOperation(projectId, errorFrom(result, "Could not stage the changes."))
+                return@launchRepositoryOperation
+            }
+            refreshInternal(projectId)
+        }
+    }
+
+    override fun unstageAll(projectId: Long) {
+        val state = stateOf(projectId)
+        if (state.value.status?.conflicted?.isNotEmpty() == true) {
+            state.update {
+                it.copy(
+                    error = GitError(
+                        GitErrorKind.CONFLICT,
+                        "Resolve conflicted files before changing the index."
+                    )
+                )
+            }
+            return
+        }
+        launchRepositoryOperation(
+            projectId = projectId,
+            kind = GitOperationKind.UNSTAGE,
+            title = "Unstaging all changes"
+        ) { projectPath ->
+            val hasHead = hasHeadCommit(projectPath)
+            val args = if (hasHead) {
+                listOf("reset", "--quiet", "HEAD", "--", ".")
+            } else {
+                listOf("rm", "--cached", "-r", "--ignore-unmatch", ".")
+            }
+            val result = runner.run(
+                projectPath = projectPath,
+                args = args,
+                options = GitRunOptions(timeoutMs = MUTATION_TIMEOUT_MS, readOnly = false)
+            )
+            if (!result.isSuccess) {
+                failOperation(projectId, errorFrom(result, "Could not unstage the changes."))
+                return@launchRepositoryOperation
+            }
+            refreshInternal(projectId)
+        }
+    }
+
+    override fun discardChanges(
+        projectId: Long,
+        change: GitFileChange,
+        confirmed: Boolean
+    ) {
+        val state = stateOf(projectId)
+        if (!confirmed) {
+            state.update {
+                it.copy(
+                    error = GitError(
+                        GitErrorKind.UNKNOWN,
+                        "Discarding changes requires confirmation."
+                    )
+                )
+            }
+            return
+        }
+        if (change.conflicted) {
+            state.update {
+                it.copy(
+                    error = GitError(
+                        GitErrorKind.CONFLICT,
+                        "Resolve conflicts in the editor instead of discarding them."
+                    )
+                )
+            }
+            return
+        }
+        if (!change.untracked && !change.hasUnstaged) {
+            state.update {
+                it.copy(
+                    error = GitError(
+                        GitErrorKind.UNKNOWN,
+                        "There are no unstaged changes to discard for this file."
+                    )
+                )
+            }
+            return
+        }
+
+        launchRepositoryOperation(
+            projectId = projectId,
+            kind = GitOperationKind.DISCARD,
+            title = "Discarding changes",
+            detail = change.path
+        ) { projectPath ->
+            if (change.untracked) {
+                when (val result = projects.deleteProjectEntry(projectId, change.path)) {
+                    DeleteProjectEntryResult.Success -> {
+                        state.update { it.copy(message = "Deleted ${change.path}.") }
+                        refreshInternal(projectId)
+                    }
+
+                    is DeleteProjectEntryResult.Failure -> {
+                        if (result.reason == EntryFailure.NOT_FOUND) {
+                            state.update {
+                                it.copy(message = "${change.path} was already removed.")
+                            }
+                            refreshInternal(projectId)
+                        } else {
+                            state.update {
+                                it.copy(
+                                    error = GitError(
+                                        kind = when (result.reason) {
+                                            EntryFailure.PERMISSION_DENIED ->
+                                                GitErrorKind.PERMISSION_DENIED
+
+                                            EntryFailure.INVALID_PATH ->
+                                                GitErrorKind.INVALID_PATH
+
+                                            else -> GitErrorKind.IO
+                                        },
+                                        message = "Could not delete ${change.path}.",
+                                        detail = result.detail
+                                    )
+                                )
+                            }
+                        }
+                    }
+                }
+            } else {
+                val result = runner.run(
+                    projectPath = projectPath,
+                    args = listOf("restore", "--worktree", "--", change.path),
+                    options = GitRunOptions(timeoutMs = MUTATION_TIMEOUT_MS, readOnly = false)
+                )
+                if (!result.isSuccess) {
+                    failOperation(
+                        projectId,
+                        errorFrom(result, "Could not discard changes for ${change.path}.")
+                    )
+                    return@launchRepositoryOperation
+                }
+                state.update { it.copy(message = "Discarded changes for ${change.path}.") }
+                refreshInternal(projectId)
+            }
+        }
+    }
+
+    override suspend fun diff(
+        projectId: Long,
+        change: GitFileChange,
+        staged: Boolean
+    ): GitDiffResult = withContext(Dispatchers.IO) {
+        val project = runCatching { projects.getProject(projectId) }.getOrNull()
+        val projectPath = project?.path
+        if (projectPath.isNullOrBlank()) {
+            return@withContext GitDiffResult.Failure(
+                GitError(GitErrorKind.INVALID_PROJECT, "The project folder is not available.")
+            )
+        }
+        if (!linuxInstalled()) {
+            return@withContext GitDiffResult.Failure(
+                GitError(GitErrorKind.LINUX_MISSING, "Install the Linux environment first.")
+            )
+        }
+        if (change.conflicted) {
+            return@withContext GitDiffResult.Failure(
+                GitError(GitErrorKind.CONFLICT, "Resolve this conflict in the editor.")
+            )
+        }
+        if (change.untracked) {
+            return@withContext when (val read = projects.readProjectFile(projectId, change.path)) {
+                is ReadProjectFileResult.Success ->
+                    GitDiffResult.Success(buildUntrackedDiff(change.path, read.content))
+
+                is ReadProjectFileResult.Failure -> when (read.error) {
+                    ProjectFileError.BINARY -> GitDiffResult.Success(
+                        GitDiff(
+                            files = listOf(
+                                GitDiffFile(path = change.path, isBinary = true)
+                            )
+                        )
+                    )
+
+                    ProjectFileError.FILE_TOO_LARGE -> GitDiffResult.Success(
+                        GitDiff(
+                            files = listOf(
+                                GitDiffFile(path = change.path, isTooLarge = true)
+                            )
+                        )
+                    )
+
+                    ProjectFileError.NOT_FOUND -> GitDiffResult.Failure(
+                        GitError(
+                            GitErrorKind.NOT_FOUND,
+                            "The file no longer exists.",
+                            read.detail
+                        )
+                    )
+
+                    else -> GitDiffResult.Failure(
+                        GitError(
+                            GitErrorKind.IO,
+                            "Could not read ${change.path}.",
+                            read.detail
+                        )
+                    )
+                }
+            }
+        }
+
+        val args = buildList {
+            add("diff")
+            if (staged) add("--cached")
+            add("--no-color")
+            add("--no-ext-diff")
+            add("--unified=3")
+            add("--")
+            add(change.path)
+        }
+        val result = runner.run(
+            projectPath = projectPath,
+            args = args,
+            options = GitRunOptions(timeoutMs = DIFF_TIMEOUT_MS, readOnly = true)
+        )
+        if (!result.isSuccess) {
+            return@withContext GitDiffResult.Failure(
+                errorFrom(result, "Could not load the diff for ${change.path}.")
+            )
+        }
+        val parsed = GitDiffParser.parse(result.stdout, change.path)
+        GitDiffResult.Success(
+            parsed.copy(truncated = parsed.truncated || result.stdoutTruncated)
+        )
+    }
+
     override fun cancelOperation() {
         val job = synchronized(operationLock) { operationJob }
         job?.cancel()
@@ -246,6 +552,89 @@ class GitRepositoryImpl(
     }
 
     // ---- internals --------------------------------------------------------
+
+    private fun launchRepositoryOperation(
+        projectId: Long,
+        kind: GitOperationKind,
+        title: String,
+        detail: String? = null,
+        block: suspend (String) -> Unit
+    ) {
+        val state = stateOf(projectId)
+        val current = state.value
+        if (current.availability != GitAvailability.READY || current.projectPath.isBlank()) {
+            state.update {
+                it.copy(
+                    error = GitError(
+                        GitErrorKind.NOT_A_REPO,
+                        "The repository is not ready."
+                    )
+                )
+            }
+            return
+        }
+        launchOperation(projectId, state, GitOperation(kind, title, detail)) {
+            block(current.projectPath)
+        }
+    }
+
+    private fun failOperation(projectId: Long, error: GitError) {
+        stateOf(projectId).update { it.copy(error = error) }
+    }
+
+    private suspend fun hasHeadCommit(projectPath: String): Boolean =
+        runner.run(
+            projectPath = projectPath,
+            args = listOf("rev-parse", "--verify", "--quiet", "HEAD"),
+            options = GitRunOptions(timeoutMs = VALIDATION_TIMEOUT_MS)
+        ).isSuccess
+
+    private suspend fun unstageArgs(projectPath: String, path: String): List<String> =
+        if (hasHeadCommit(projectPath)) {
+            listOf("reset", "--quiet", "HEAD", "--", path)
+        } else {
+            listOf("rm", "--cached", "--ignore-unmatch", "--", path)
+        }
+
+    /**
+     * Untracked files have no base version, so their diff is built from the
+     * current text. The editor's 2 MB read limit and binary rejection already
+     * apply before this method sees the content.
+     */
+    private fun buildUntrackedDiff(path: String, content: String): GitDiff {
+        val rawLines = content.split('\n')
+        val lines = if (rawLines.isNotEmpty() && rawLines.last().isEmpty()) {
+            rawLines.dropLast(1)
+        } else {
+            rawLines
+        }.map { it.removeSuffix("\r") }
+
+        val limited = lines.take(MAX_UNTRACKED_DIFF_LINES)
+        val rendered = limited.mapIndexed { index, line ->
+            GitDiffLine(
+                kind = GitDiffLineKind.ADDED,
+                text = line,
+                newLine = index + 1
+            )
+        }
+        val hunk = GitDiffHunk(
+            header = "@@ -0,0 +1,${rendered.size} @@",
+            oldStart = 0,
+            oldCount = 0,
+            newStart = 1,
+            newCount = rendered.size,
+            lines = rendered
+        )
+        return GitDiff(
+            files = listOf(
+                GitDiffFile(
+                    path = path,
+                    hunks = if (rendered.isEmpty()) emptyList() else listOf(hunk)
+                )
+            ),
+            truncated = lines.size > limited.size
+        )
+    }
 
     private fun stateOf(projectId: Long): MutableStateFlow<GitSnapshot> =
         states.computeIfAbsent(projectId) {
@@ -562,6 +951,9 @@ class GitRepositoryImpl(
         const val STATUS_TIMEOUT_MS = 60_000L
         const val VALIDATION_TIMEOUT_MS = 20_000L
         const val INIT_TIMEOUT_MS = 60_000L
+        const val MUTATION_TIMEOUT_MS = 60_000L
+        const val DIFF_TIMEOUT_MS = 60_000L
+        const val MAX_UNTRACKED_DIFF_LINES = 5_000
 
         val ANSI_ESCAPE = Regex("\u001B\\[[0-9;]*[A-Za-z]")
         val URL_CREDENTIALS = Regex("(https?://)[^/@\\s]+@")
