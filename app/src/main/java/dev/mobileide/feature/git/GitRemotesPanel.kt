@@ -87,9 +87,10 @@ internal fun GitRemotesPanel(
     val context = LocalContext.current
     var showAddDialog by rememberSaveable { mutableStateOf(false) }
     var addName by rememberSaveable { mutableStateOf("") }
-    var addUrl by rememberSaveable { mutableStateOf("") }
+    // URLs may contain an embedded token; never put them in saved state.
+    var addUrl by remember { mutableStateOf("") }
     var editTarget by remember { mutableStateOf<GitRemote?>(null) }
-    var editUrl by rememberSaveable { mutableStateOf("") }
+    var editUrl by remember { mutableStateOf("") }
     var deleteTarget by remember { mutableStateOf<GitRemote?>(null) }
 
     var credentialTarget by remember { mutableStateOf<GitRemote?>(null) }
