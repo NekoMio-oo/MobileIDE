@@ -1,9 +1,15 @@
 package dev.mobileide.data.git
 
+import dev.mobileide.domain.git.GitActionResult
 import dev.mobileide.domain.git.GitAvailability
 import dev.mobileide.domain.git.GitBranch
 import dev.mobileide.domain.git.GitBranches
 import dev.mobileide.domain.git.GitBranchesResult
+import dev.mobileide.domain.git.GitIdentity
+import dev.mobileide.domain.git.GitRemote
+import dev.mobileide.domain.git.GitRemoteAuth
+import dev.mobileide.domain.git.GitRemotesResult
+import dev.mobileide.domain.git.GitSshKeyInfo
 import dev.mobileide.domain.git.GitCommit
 import dev.mobileide.domain.git.GitCommitDetail
 import dev.mobileide.domain.git.GitCommitDetailResult
@@ -57,6 +63,9 @@ class GitRepositoryImpl(
     private val runner: GitCommandRunner,
     private val installer: GitInstaller,
     private val linuxInstalled: () -> Boolean,
+    private val paths: GitPaths,
+    private val credentials: GitCredentialStore,
+    private val ssh: SshKeyManager,
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 ) : GitRepository {
 
@@ -1000,6 +1009,401 @@ class GitRepositoryImpl(
         }
     }
 
+    override suspend fun remotes(projectId: Long): GitRemotesResult =
+        withContext(Dispatchers.IO) {
+            val project = runCatching { projects.getProject(projectId) }.getOrNull()
+            val projectPath = project?.path
+            if (projectPath.isNullOrBlank()) {
+                return@withContext GitRemotesResult.Failure(
+                    GitError(
+                        GitErrorKind.INVALID_PROJECT,
+                        "The project folder is not available."
+                    )
+                )
+            }
+            if (!linuxInstalled()) {
+                return@withContext GitRemotesResult.Failure(
+                    GitError(
+                        GitErrorKind.LINUX_MISSING,
+                        "Install the Linux environment first."
+                    )
+                )
+            }
+            val result = runner.run(
+                projectPath = projectPath,
+                args = listOf("remote", "-v"),
+                options = GitRunOptions(timeoutMs = VALIDATION_TIMEOUT_MS)
+            )
+            if (!result.isSuccess) {
+                return@withContext GitRemotesResult.Failure(
+                    errorFrom(result, "Could not load remotes.")
+                )
+            }
+            val remotes = GitRemoteParser.parse(result.stdout).map { remote ->
+                val parsed = GitRemoteUrlParser.parse(remote.fetchUrl)
+                val credential = if (parsed.auth == GitRemoteAuth.HTTPS) {
+                    parsed.hostKey?.let { credentials.loadHttps(it) }
+                } else {
+                    null
+                }
+                GitRemote(
+                    name = remote.name,
+                    url = remote.fetchUrl,
+                    pushUrl = remote.pushUrl,
+                    host = parsed.host,
+                    auth = parsed.auth,
+                    hasCredential = when (parsed.auth) {
+                        GitRemoteAuth.HTTPS -> credential != null
+                        GitRemoteAuth.SSH -> paths.privateKeyFile.isFile
+                        GitRemoteAuth.OTHER -> false
+                    },
+                    credentialUsername = credential?.username
+                )
+            }
+            GitRemotesResult.Success(remotes)
+        }
+
+    override fun addRemote(projectId: Long, name: String, url: String) {
+        launchRepositoryOperation(
+            projectId = projectId,
+            kind = GitOperationKind.REMOTE,
+            title = "Adding remote",
+            detail = name
+        ) { projectPath ->
+            val remoteName = name.trim()
+            val parsed = GitRemoteUrlParser.parse(url)
+            if (remoteName.isEmpty() || parsed.cleanUrl.isBlank()) {
+                failOperation(
+                    projectId,
+                    GitError(GitErrorKind.UNKNOWN, "Enter a remote name and URL.")
+                )
+                return@launchRepositoryOperation
+            }
+            val result = runner.run(
+                projectPath = projectPath,
+                args = listOf("remote", "add", remoteName, parsed.cleanUrl),
+                options = GitRunOptions(timeoutMs = MUTATION_TIMEOUT_MS, readOnly = false)
+            )
+            if (!result.isSuccess) {
+                failOperation(projectId, errorFrom(result, "Could not add the remote."))
+                return@launchRepositoryOperation
+            }
+            saveEmbeddedCredentials(parsed)
+            stateOf(projectId).update { it.copy(message = "Remote $remoteName added.") }
+            refreshInternal(projectId)
+            bumpRevision()
+        }
+    }
+
+    override fun setRemoteUrl(projectId: Long, name: String, url: String) {
+        launchRepositoryOperation(
+            projectId = projectId,
+            kind = GitOperationKind.REMOTE,
+            title = "Updating remote",
+            detail = name
+        ) { projectPath ->
+            val parsed = GitRemoteUrlParser.parse(url)
+            if (parsed.cleanUrl.isBlank()) {
+                failOperation(projectId, GitError(GitErrorKind.UNKNOWN, "Enter a remote URL."))
+                return@launchRepositoryOperation
+            }
+            val result = runner.run(
+                projectPath = projectPath,
+                args = listOf("remote", "set-url", name, parsed.cleanUrl),
+                options = GitRunOptions(timeoutMs = MUTATION_TIMEOUT_MS, readOnly = false)
+            )
+            if (!result.isSuccess) {
+                failOperation(projectId, errorFrom(result, "Could not update the remote."))
+                return@launchRepositoryOperation
+            }
+            saveEmbeddedCredentials(parsed)
+            stateOf(projectId).update { it.copy(message = "Remote $name updated.") }
+            refreshInternal(projectId)
+            bumpRevision()
+        }
+    }
+
+    override fun removeRemote(projectId: Long, name: String) {
+        launchRepositoryOperation(
+            projectId = projectId,
+            kind = GitOperationKind.REMOTE,
+            title = "Removing remote",
+            detail = name
+        ) { projectPath ->
+            val result = runner.run(
+                projectPath = projectPath,
+                args = listOf("remote", "remove", name),
+                options = GitRunOptions(timeoutMs = MUTATION_TIMEOUT_MS, readOnly = false)
+            )
+            if (!result.isSuccess) {
+                failOperation(projectId, errorFrom(result, "Could not remove the remote."))
+                return@launchRepositoryOperation
+            }
+            stateOf(projectId).update { it.copy(message = "Remote $name removed.") }
+            refreshInternal(projectId)
+            bumpRevision()
+        }
+    }
+
+    override fun fetchRemote(projectId: Long, remote: String) {
+        launchRemoteOperation(projectId, remote, GitOperationKind.FETCH, "Fetching $remote") { path, url ->
+            val result = runner.run(
+                projectPath = path,
+                args = listOf("fetch", "--prune", "--progress", remote),
+                options = remoteOptionsFor(projectId, url, REMOTE_TIMEOUT_MS)
+            )
+            if (!result.isSuccess) {
+                failOperation(projectId, errorFrom(result, "Fetch from $remote failed."))
+                return@launchRemoteOperation
+            }
+            stateOf(projectId).update { it.copy(message = "Fetched $remote.") }
+            refreshInternal(projectId)
+            bumpRevision()
+        }
+    }
+
+    override fun pullRemote(
+        projectId: Long,
+        remote: String,
+        dirtyEditorFiles: List<String>
+    ) {
+        val state = stateOf(projectId)
+        launchRemoteOperation(projectId, remote, GitOperationKind.PULL, "Pulling from $remote") { path, url ->
+            dirtyBranchError(state.value, dirtyEditorFiles)?.let { error ->
+                failOperation(projectId, error)
+                return@launchRemoteOperation
+            }
+            val branch = state.value.status?.branch
+            if (branch.isNullOrBlank()) {
+                failOperation(
+                    projectId,
+                    GitError(GitErrorKind.UNKNOWN, "Switch to a branch before pulling.")
+                )
+                return@launchRemoteOperation
+            }
+            val result = runner.run(
+                projectPath = path,
+                args = listOf("pull", "--ff-only", "--progress", remote, branch),
+                options = remoteOptionsFor(projectId, url, REMOTE_TIMEOUT_MS)
+            )
+            if (!result.isSuccess) {
+                failOperation(
+                    projectId,
+                    errorFrom(result, "Pull from $remote failed.")
+                )
+                return@launchRemoteOperation
+            }
+            state.update { it.copy(message = "Pulled from $remote.") }
+            refreshInternal(projectId)
+            bumpRevision()
+        }
+    }
+
+    override fun pushRemote(projectId: Long, remote: String) {
+        val state = stateOf(projectId)
+        launchRemoteOperation(projectId, remote, GitOperationKind.PUSH, "Pushing to $remote") { path, url ->
+            val branch = state.value.status?.branch
+            if (branch.isNullOrBlank()) {
+                failOperation(
+                    projectId,
+                    GitError(GitErrorKind.UNKNOWN, "Switch to a branch before pushing.")
+                )
+                return@launchRemoteOperation
+            }
+            val result = runner.run(
+                projectPath = path,
+                args = listOf("push", "--progress", "-u", remote, branch),
+                options = remoteOptionsFor(projectId, url, REMOTE_TIMEOUT_MS)
+            )
+            if (!result.isSuccess) {
+                failOperation(projectId, errorFrom(result, "Push to $remote failed."))
+                return@launchRemoteOperation
+            }
+            state.update { it.copy(message = "Pushed to $remote.") }
+            refreshInternal(projectId)
+            bumpRevision()
+        }
+    }
+
+    override suspend fun identity(): GitIdentity = withContext(Dispatchers.IO) {
+        GitIdentity(
+            name = configValue("user.name"),
+            email = configValue("user.email")
+        )
+    }
+
+    override suspend fun saveIdentity(
+        projectId: Long,
+        name: String,
+        email: String
+    ): GitActionResult = withContext(Dispatchers.IO) {
+        val state = stateOf(projectId)
+        val trimmedName = name.trim()
+        val trimmedEmail = email.trim()
+        if (trimmedName.isEmpty() || trimmedEmail.isEmpty()) {
+            val error = GitError(
+                GitErrorKind.IDENTITY_MISSING,
+                "Enter both a name and an email."
+            )
+            state.update { it.copy(error = error) }
+            return@withContext GitActionResult.Failure(error)
+        }
+        val nameResult = runner.run(
+            projectPath = null,
+            args = listOf("config", "--global", "user.name", trimmedName),
+            options = GitRunOptions(timeoutMs = MUTATION_TIMEOUT_MS, readOnly = false)
+        )
+        val emailResult = runner.run(
+            projectPath = null,
+            args = listOf("config", "--global", "user.email", trimmedEmail),
+            options = GitRunOptions(timeoutMs = MUTATION_TIMEOUT_MS, readOnly = false)
+        )
+        if (!nameResult.isSuccess || !emailResult.isSuccess) {
+            val error = errorFrom(
+                if (!nameResult.isSuccess) nameResult else emailResult,
+                "Could not save the Git identity."
+            )
+            state.update { it.copy(error = error) }
+            return@withContext GitActionResult.Failure(error)
+        }
+        state.update { it.copy(message = "Git identity saved.", error = null) }
+        GitActionResult.Success
+    }
+
+    override suspend fun saveHttpsCredential(
+        projectId: Long,
+        host: String,
+        username: String,
+        token: String
+    ): GitActionResult = withContext(Dispatchers.IO) {
+        val state = stateOf(projectId)
+        val trimmedUsername = username.trim()
+        val trimmedToken = token.trim()
+        if (host.isBlank() || trimmedUsername.isEmpty() || trimmedToken.isEmpty()) {
+            val error = GitError(
+                GitErrorKind.AUTH_FAILED,
+                "Enter the host, username and token."
+            )
+            state.update { it.copy(error = error) }
+            return@withContext GitActionResult.Failure(error)
+        }
+        runCatching {
+            credentials.saveHttps(host, trimmedUsername, trimmedToken)
+        }.fold(
+            onSuccess = {
+                state.update { it.copy(message = "Credential saved for $host.", error = null) }
+                GitActionResult.Success
+            },
+            onFailure = {
+                val error = GitError(
+                    GitErrorKind.UNKNOWN,
+                    "Could not save the credential securely."
+                )
+                state.update { it.copy(error = error) }
+                GitActionResult.Failure(error)
+            }
+        )
+    }
+
+    override suspend fun clearHttpsCredential(
+        projectId: Long,
+        host: String
+    ): GitActionResult = withContext(Dispatchers.IO) {
+        val state = stateOf(projectId)
+        runCatching { credentials.removeHttps(host) }.fold(
+            onSuccess = {
+                state.update { it.copy(message = "Credential removed for $host.", error = null) }
+                GitActionResult.Success
+            },
+            onFailure = {
+                val error = GitError(
+                    GitErrorKind.UNKNOWN,
+                    "Could not remove the credential."
+                )
+                state.update { it.copy(error = error) }
+                GitActionResult.Failure(error)
+            }
+        )
+    }
+
+    override suspend fun sshKeyInfo(): GitSshKeyInfo = withContext(Dispatchers.IO) { ssh.info() }
+
+    override fun generateSshKey(projectId: Long) {
+        val state = stateOf(projectId)
+        launchOperation(
+            projectId = projectId,
+            state = state,
+            operation = GitOperation(
+                kind = GitOperationKind.SSH,
+                title = "Generating SSH key"
+            )
+        ) {
+            when (val result = ssh.generate()) {
+                GitActionResult.Success -> {
+                    state.update { it.copy(message = "SSH key generated.", error = null) }
+                    bumpRevision()
+                }
+
+                is GitActionResult.Failure ->
+                    state.update { it.copy(error = result.error) }
+            }
+        }
+    }
+
+    override fun importSshKey(
+        projectId: Long,
+        privateKey: String,
+        publicKey: String?,
+        passphrase: String?
+    ) {
+        val state = stateOf(projectId)
+        launchOperation(
+            projectId = projectId,
+            state = state,
+            operation = GitOperation(
+                kind = GitOperationKind.SSH,
+                title = "Importing SSH key"
+            )
+        ) {
+            when (val result = ssh.importKey(privateKey, publicKey, passphrase)) {
+                GitActionResult.Success -> {
+                    state.update {
+                        it.copy(
+                            message = "SSH key imported. Test it with Fetch.",
+                            error = null
+                        )
+                    }
+                    bumpRevision()
+                }
+
+                is GitActionResult.Failure ->
+                    state.update { it.copy(error = result.error) }
+            }
+        }
+    }
+
+    override fun deleteSshKey(projectId: Long) {
+        val state = stateOf(projectId)
+        launchOperation(
+            projectId = projectId,
+            state = state,
+            operation = GitOperation(
+                kind = GitOperationKind.SSH,
+                title = "Removing SSH key"
+            )
+        ) {
+            when (val result = ssh.delete()) {
+                GitActionResult.Success -> {
+                    state.update { it.copy(message = "SSH key removed.", error = null) }
+                    bumpRevision()
+                }
+
+                is GitActionResult.Failure ->
+                    state.update { it.copy(error = result.error) }
+            }
+        }
+    }
+
     override fun cancelOperation() {
         val job = synchronized(operationLock) { operationJob }
         job?.cancel()
@@ -1067,6 +1471,109 @@ class GitRepositoryImpl(
             )
         }
         return null
+    }
+
+    private fun launchRemoteOperation(
+        projectId: Long,
+        remote: String,
+        kind: GitOperationKind,
+        title: String,
+        block: suspend (projectPath: String, remoteUrl: String) -> Unit
+    ) {
+        launchRepositoryOperation(projectId, kind, title, remote) { projectPath ->
+            val url = remoteUrl(projectPath, remote)
+            if (url == null) {
+                failOperation(
+                    projectId,
+                    GitError(GitErrorKind.UNKNOWN, "Remote $remote was not found.")
+                )
+                return@launchRepositoryOperation
+            }
+            val parsed = GitRemoteUrlParser.parse(url)
+            if (parsed.auth == GitRemoteAuth.SSH && !paths.privateKeyFile.isFile) {
+                failOperation(
+                    projectId,
+                    GitError(
+                        GitErrorKind.AUTH_FAILED,
+                        "Generate or import an SSH key first."
+                    )
+                )
+                return@launchRepositoryOperation
+            }
+            block(projectPath, url)
+        }
+    }
+
+    private suspend fun remoteUrl(projectPath: String, remote: String): String? {
+        val result = runner.run(
+            projectPath = projectPath,
+            args = listOf("remote", "get-url", remote),
+            options = GitRunOptions(timeoutMs = VALIDATION_TIMEOUT_MS)
+        )
+        if (!result.isSuccess) return null
+        return result.stdout.trim().takeIf { it.isNotEmpty() }
+    }
+
+    private fun remoteOptionsFor(
+        projectId: Long,
+        url: String,
+        timeoutMs: Long
+    ): GitRunOptions {
+        val parsed = GitRemoteUrlParser.parse(url)
+        val environment = buildMap {
+            when (parsed.auth) {
+                GitRemoteAuth.HTTPS -> {
+                    val credential = parsed.hostKey?.let { credentials.loadHttps(it) }
+                    if (credential != null) {
+                        put("MOBILEIDE_GIT_USERNAME", credential.username)
+                        put("MOBILEIDE_GIT_TOKEN", credential.token)
+                    }
+                }
+
+                GitRemoteAuth.SSH -> {
+                    credentials.loadSshPassphrase()?.let {
+                        put("MOBILEIDE_SSH_PASSPHRASE", it)
+                    }
+                }
+
+                GitRemoteAuth.OTHER -> Unit
+            }
+        }
+        val state = stateOf(projectId)
+        return GitRunOptions(
+            timeoutMs = timeoutMs,
+            readOnly = false,
+            extraEnv = environment,
+            onProgress = { line ->
+                val progress = GitProgressParser.parse(line)
+                state.update { current ->
+                    current.copy(
+                        operation = current.operation?.copy(
+                            detail = line.take(MAX_OPERATION_DETAIL),
+                            progress = progress ?: current.operation?.progress
+                        )
+                    )
+                }
+            }
+        )
+    }
+
+    private fun saveEmbeddedCredentials(parsed: ParsedRemoteUrl) {
+        if (parsed.auth != GitRemoteAuth.HTTPS) return
+        val hostKey = parsed.hostKey ?: return
+        val username = parsed.username ?: return
+        val password = parsed.password ?: return
+        runCatching { credentials.saveHttps(hostKey, username, password) }
+    }
+
+    private suspend fun configValue(key: String): String? {
+        val result = runner.run(
+            projectPath = null,
+            args = listOf("config", "--global", "--get", key),
+            options = GitRunOptions(timeoutMs = VALIDATION_TIMEOUT_MS)
+        )
+        if (!result.isSuccess) return null
+        return result.stdout.trim().takeIf { it.isNotEmpty() }
     }
 
     private suspend fun hasHeadCommit(projectPath: String): Boolean =
@@ -1468,6 +1975,7 @@ class GitRepositoryImpl(
         const val MAX_UNTRACKED_DIFF_LINES = 5_000
         const val HISTORY_TIMEOUT_MS = 60_000L
         const val BRANCH_TIMEOUT_MS = 60_000L
+        const val REMOTE_TIMEOUT_MS = 5 * 60 * 1000L
         const val MAX_HISTORY_LIMIT = 1_000
         const val MAX_COMMIT_FILES = 1_000
         const val HISTORY_FORMAT =

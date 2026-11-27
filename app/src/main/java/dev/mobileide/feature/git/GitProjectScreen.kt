@@ -29,6 +29,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.ScrollableTabRow
@@ -86,6 +87,7 @@ fun GitProjectScreen(
     val diffState by viewModel.diffState.collectAsStateWithLifecycle()
     val historyState by viewModel.history.collectAsStateWithLifecycle()
     val branchesState by viewModel.branches.collectAsStateWithLifecycle()
+    val remotesState by viewModel.remotes.collectAsStateWithLifecycle()
     val commitDetailState by viewModel.commitDetail.collectAsStateWithLifecycle()
     var showInitDialog by rememberSaveable { mutableStateOf(false) }
     var showInstallDialog by rememberSaveable { mutableStateOf(false) }
@@ -109,6 +111,7 @@ fun GitProjectScreen(
             when (selectedTab) {
                 GitPanelTab.HISTORY -> viewModel.loadHistory()
                 GitPanelTab.BRANCHES -> viewModel.loadBranches()
+                GitPanelTab.REMOTES -> viewModel.loadRemotes()
                 else -> Unit
             }
         }
@@ -156,6 +159,7 @@ fun GitProjectScreen(
                     when (selectedTab) {
                         GitPanelTab.HISTORY -> viewModel.loadHistory(force = true)
                         GitPanelTab.BRANCHES -> viewModel.loadBranches(force = true)
+                        GitPanelTab.REMOTES -> viewModel.loadRemotes(force = true)
                         else -> Unit
                     }
                 }
@@ -247,6 +251,24 @@ fun GitProjectScreen(
                         onCreate = viewModel::createBranch,
                         onSwitch = viewModel::switchBranch,
                         onDelete = viewModel::deleteBranch
+                    )
+
+                    GitPanelTab.REMOTES -> GitRemotesPanel(
+                        state = remotesState,
+                        busy = state.isBusy,
+                        onRefresh = { viewModel.loadRemotes(force = true) },
+                        onAddRemote = viewModel::addRemote,
+                        onSetRemoteUrl = viewModel::setRemoteUrl,
+                        onRemoveRemote = viewModel::removeRemote,
+                        onFetch = viewModel::fetchRemote,
+                        onPull = viewModel::pullRemote,
+                        onPush = viewModel::pushRemote,
+                        onSaveIdentity = viewModel::saveIdentity,
+                        onSaveCredential = viewModel::saveHttpsCredential,
+                        onClearCredential = viewModel::clearHttpsCredential,
+                        onGenerateSshKey = viewModel::generateSshKey,
+                        onImportSshKey = viewModel::importSshKey,
+                        onDeleteSshKey = viewModel::deleteSshKey
                     )
                 }
             }
@@ -603,37 +625,43 @@ private fun OperationBanner(
             color = MaterialTheme.colorScheme.surfaceContainer,
             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
         ) {
-            Row(
-                modifier = Modifier.padding(MobileIdeSpacing.md),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(18.dp),
-                    strokeWidth = 2.dp
-                )
-                Spacer(Modifier.width(MobileIdeSpacing.md))
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = operation.title,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurface
+            Column(modifier = Modifier.padding(MobileIdeSpacing.md)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(18.dp),
+                        strokeWidth = 2.dp
                     )
-                    operation.detail?.let { detail ->
+                    Spacer(Modifier.width(MobileIdeSpacing.md))
+                    Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = detail,
-                            style = MaterialTheme.typography.labelSmall.copy(
-                                fontFamily = FontFamily.Monospace
-                            ),
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis
+                            text = operation.title,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurface
                         )
+                        operation.detail?.let { detail ->
+                            Text(
+                                text = detail,
+                                style = MaterialTheme.typography.labelSmall.copy(
+                                    fontFamily = FontFamily.Monospace
+                                ),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+                    if (operation.cancellable) {
+                        TextButton(onClick = onCancel) {
+                            Text(stringResource(R.string.git_cancel))
+                        }
                     }
                 }
-                if (operation.cancellable) {
-                    TextButton(onClick = onCancel) {
-                        Text(stringResource(R.string.git_cancel))
-                    }
+                operation.progress?.let { value ->
+                    Spacer(Modifier.height(MobileIdeSpacing.sm))
+                    LinearProgressIndicator(
+                        progress = { value },
+                        modifier = Modifier.fillMaxWidth()
+                    )
                 }
             }
         }
@@ -746,7 +774,8 @@ private enum class GitPanelTab(@StringRes val labelRes: Int) {
     OVERVIEW(R.string.git_tab_overview),
     CHANGES(R.string.git_tab_changes),
     HISTORY(R.string.git_tab_history),
-    BRANCHES(R.string.git_tab_branches)
+    BRANCHES(R.string.git_tab_branches),
+    REMOTES(R.string.git_tab_remotes)
 }
 
 @Composable

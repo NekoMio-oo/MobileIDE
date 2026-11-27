@@ -4,6 +4,9 @@ import dev.mobileide.domain.git.GitBranch
 import dev.mobileide.domain.git.GitCommit
 import dev.mobileide.domain.git.GitCommitDetail
 import dev.mobileide.domain.git.GitError
+import dev.mobileide.domain.git.GitIdentity
+import dev.mobileide.domain.git.GitRemote
+import dev.mobileide.domain.git.GitSshKeyInfo
 import dev.mobileide.domain.model.Project
 
 /** One row of the Git project picker. */
@@ -40,5 +43,14 @@ data class GitBranchesUiState(
     val isLoading: Boolean = false,
     val local: List<GitBranch> = emptyList(),
     val remote: List<GitBranch> = emptyList(),
+    val error: GitError? = null
+)
+
+/** Remotes, identity and SSH key status for the Remotes tab. */
+data class GitRemotesUiState(
+    val isLoading: Boolean = false,
+    val remotes: List<GitRemote> = emptyList(),
+    val identity: GitIdentity = GitIdentity(),
+    val sshKey: GitSshKeyInfo = GitSshKeyInfo(),
     val error: GitError? = null
 )

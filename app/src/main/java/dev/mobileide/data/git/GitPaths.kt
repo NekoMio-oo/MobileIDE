@@ -29,5 +29,33 @@ class GitPaths(filesDir: File, cacheDir: File) {
         sshDir.mkdirs()
         askpassDir.mkdirs()
         tempDir.mkdirs()
+        ensureAskpassScript()
+    }
+
+    /**
+     * The helper only forwards environment variables; it never contains a
+     * token or passphrase. Git and ssh read the answers from this script.
+     */
+    private fun ensureAskpassScript() {
+        if (askpassScript.isFile && askpassScript.readText() == ASKPASS_SCRIPT) return
+        askpassScript.writeText(ASKPASS_SCRIPT)
+        askpassScript.setReadable(false, false)
+        askpassScript.setWritable(false, false)
+        askpassScript.setExecutable(false, false)
+        askpassScript.setReadable(true, true)
+        askpassScript.setWritable(true, true)
+        askpassScript.setExecutable(true, true)
+    }
+
+    private companion object {
+        val ASKPASS_SCRIPT = """
+            #!/bin/sh
+            case "${'$'}1" in
+              *Username*|*username*) printf '%s\n' "${'$'}MOBILEIDE_GIT_USERNAME" ;;
+              *Password*|*password*) printf '%s\n' "${'$'}MOBILEIDE_GIT_TOKEN" ;;
+              *[Pp]assphrase*) printf '%s\n' "${'$'}MOBILEIDE_SSH_PASSPHRASE" ;;
+              *) printf '\n' ;;
+            esac
+        """.trimIndent() + "\n"
     }
 }

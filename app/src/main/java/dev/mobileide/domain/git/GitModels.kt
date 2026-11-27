@@ -110,9 +110,11 @@ enum class GitOperationKind {
     DISCARD,
     COMMIT,
     BRANCH,
+    REMOTE,
     FETCH,
     PULL,
     PUSH,
+    SSH,
     DIFF
 }
 
@@ -325,3 +327,43 @@ sealed interface GitBranchesResult {
     data class Success(val branches: GitBranches) : GitBranchesResult
     data class Failure(val error: GitError) : GitBranchesResult
 }
+
+// ---- Remotes and credentials -------------------------------------------------
+
+enum class GitRemoteAuth {
+    HTTPS,
+    SSH,
+    OTHER
+}
+
+data class GitRemote(
+    val name: String,
+    val url: String,
+    val pushUrl: String? = null,
+    val host: String? = null,
+    val auth: GitRemoteAuth = GitRemoteAuth.OTHER,
+    /** An HTTPS token or an SSH key is available for this remote. */
+    val hasCredential: Boolean = false,
+    /** Stored HTTPS username; the token is never exposed. */
+    val credentialUsername: String? = null
+)
+
+sealed interface GitRemotesResult {
+    data class Success(val remotes: List<GitRemote>) : GitRemotesResult
+    data class Failure(val error: GitError) : GitRemotesResult
+}
+
+data class GitIdentity(
+    val name: String? = null,
+    val email: String? = null
+) {
+    val isComplete: Boolean
+        get() = !name.isNullOrBlank() && !email.isNullOrBlank()
+}
+
+data class GitSshKeyInfo(
+    val hasKey: Boolean = false,
+    val publicKey: String? = null,
+    val privateKeyPath: String = "",
+    val hasPassphrase: Boolean = false
+)

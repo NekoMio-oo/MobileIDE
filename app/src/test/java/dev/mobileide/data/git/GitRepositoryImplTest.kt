@@ -5,6 +5,7 @@ import dev.mobileide.core.storage.StorageAccess
 import dev.mobileide.data.local.ProjectDao
 import dev.mobileide.data.local.ProjectEntity
 import dev.mobileide.data.repository.ProjectRepositoryImpl
+import dev.mobileide.domain.git.GitActionResult
 import dev.mobileide.domain.git.GitAvailability
 import dev.mobileide.domain.git.GitBranchesResult
 import dev.mobileide.domain.git.GitChangeKind
@@ -13,7 +14,10 @@ import dev.mobileide.domain.git.GitDiffResult
 import dev.mobileide.domain.git.GitErrorKind
 import dev.mobileide.domain.git.GitHistoryResult
 import dev.mobileide.domain.git.GitInstallResult
+import dev.mobileide.domain.git.GitRemoteAuth
+import dev.mobileide.domain.git.GitRemotesResult
 import dev.mobileide.domain.git.GitSnapshot
+import dev.mobileide.domain.git.GitSshKeyInfo
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -72,11 +76,18 @@ class GitRepositoryImplTest {
         )
 
         scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        val gitPaths = GitPaths(
+            File(temporaryFolder.root, "files"),
+            File(temporaryFolder.root, "cache")
+        )
         repository = GitRepositoryImpl(
             projects = projects,
             runner = LocalGitRunner(),
             installer = FakeGitInstaller(),
             linuxInstalled = { true },
+            paths = gitPaths,
+            credentials = GitCredentialStore(gitPaths.credentialsFile, FakeCredentialCrypto()),
+            ssh = FakeSshKeyManager(),
             scope = scope
         )
     }
@@ -510,6 +521,60 @@ class GitRepositoryImplTest {
         assertTrue(branches.local.any { it.name == "feature" })
     }
 
+    @Test
+    fun `manages a local bare remote and pushes fetches pulls`() = runBlocking {
+        initializeRepository()
+        commitAll("initial")
+        repository.refresh(projectId)
+
+        val remoteDir = File(temporaryFolder.root, "remote.git")
+        val runner = LocalGitRunner()
+        assertTrue(
+            runner.run(
+                projectPath = null,
+                args = listOf("init", "--bare", remoteDir.absolutePath),
+                options = GitRunOptions(readOnly = false)
+            ).isSuccess
+        )
+
+        repository.addRemote(projectId, "origin", remoteDir.absolutePath)
+        awaitStatus { true }
+        assertNull(repository.observe(projectId).value.error)
+
+        var remotes = (repository.remotes(projectId) as GitRemotesResult.Success).remotes
+        assertEquals(listOf("origin"), remotes.map { it.name })
+        assertEquals(GitRemoteAuth.OTHER, remotes.single().auth)
+        assertFalse(remotes.single().hasCredential)
+
+        repository.pushRemote(projectId, "origin")
+        awaitStatus { true }
+        assertNull(repository.observe(projectId).value.error)
+        assertTrue(
+            runner.run(
+                projectPath = null,
+                args = listOf("--git-dir", remoteDir.absolutePath, "rev-parse", "main"),
+                options = GitRunOptions(readOnly = true)
+            ).isSuccess
+        )
+
+        repository.fetchRemote(projectId, "origin")
+        awaitStatus { true }
+        assertNull(repository.observe(projectId).value.error)
+        val main = (repository.branches(projectId) as GitBranchesResult.Success)
+            .branches.local.single { it.name == "main" }
+        assertEquals("origin/main", main.upstream)
+
+        repository.pullRemote(projectId, "origin")
+        awaitStatus { true }
+        assertNull(repository.observe(projectId).value.error)
+
+        repository.removeRemote(projectId, "origin")
+        awaitStatus { true }
+        assertNull(repository.observe(projectId).value.error)
+        remotes = (repository.remotes(projectId) as GitRemotesResult.Success).remotes
+        assertTrue(remotes.isEmpty())
+    }
+
     private suspend fun initializeRepository() {
         repository.initRepository(projectId, "main")
         withTimeout(20_000) {
@@ -608,6 +673,30 @@ private class FakeGitInstaller : GitInstaller {
         onProgress("fake install")
         return GitInstallResult(success = true, message = "Git installed")
     }
+}
+
+private class FakeCredentialCrypto : CredentialCrypto {
+    override fun encrypt(plaintext: String): String =
+        java.util.Base64.getEncoder()
+            .encodeToString(plaintext.toByteArray(Charsets.UTF_8))
+
+    override fun decrypt(ciphertext: String): String? = runCatching {
+        String(java.util.Base64.getDecoder().decode(ciphertext), Charsets.UTF_8)
+    }.getOrNull()
+}
+
+private class FakeSshKeyManager : SshKeyManager {
+    override fun info(): GitSshKeyInfo = GitSshKeyInfo()
+
+    override suspend fun generate(): GitActionResult = GitActionResult.Success
+
+    override fun importKey(
+        privateKey: String,
+        publicKey: String?,
+        passphrase: String?
+    ): GitActionResult = GitActionResult.Success
+
+    override fun delete(): GitActionResult = GitActionResult.Success
 }
 
 private class TestProjectDao : ProjectDao {

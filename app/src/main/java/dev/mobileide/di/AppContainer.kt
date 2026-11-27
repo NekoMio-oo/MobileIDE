@@ -21,8 +21,11 @@ import dev.mobileide.data.build.providers.JavaBuildProvider
 import dev.mobileide.data.build.providers.RustBuildProvider
 import dev.mobileide.data.build.providers.TypeScriptBuildProvider
 import dev.mobileide.data.build.providers.UnsupportedBuildProvider
+import dev.mobileide.data.git.AndroidKeystoreCredentialCrypto
+import dev.mobileide.data.git.GitCredentialStore
 import dev.mobileide.data.git.GitPaths
 import dev.mobileide.data.git.GitRepositoryImpl
+import dev.mobileide.data.git.GitSshManager
 import dev.mobileide.data.git.ProotGitInstaller
 import dev.mobileide.data.git.ProotGitRunner
 import dev.mobileide.data.local.ProjectDatabase
@@ -178,11 +181,23 @@ class AppContainer(context: Context) {
     /** Git CLI shares the Debian userland with the terminal and the build system. */
     val gitRepository: GitRepository by lazy {
         val gitPaths = GitPaths(appContext.filesDir, appContext.cacheDir)
+        val gitCredentials = GitCredentialStore(
+            gitPaths.credentialsFile,
+            AndroidKeystoreCredentialCrypto()
+        )
         GitRepositoryImpl(
             projects = projectRepository,
             runner = ProotGitRunner(linuxRuntime, gitPaths),
             installer = ProotGitInstaller(linuxRuntime, runtimeExecutor),
-            linuxInstalled = { linuxRuntime.isInstalled() }
+            linuxInstalled = { linuxRuntime.isInstalled() },
+            paths = gitPaths,
+            credentials = gitCredentials,
+            ssh = GitSshManager(
+                linuxRuntime,
+                runtimeExecutor,
+                gitPaths,
+                gitCredentials
+            )
         )
     }
 }

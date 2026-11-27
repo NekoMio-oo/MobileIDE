@@ -42,8 +42,12 @@ class ProotGitRunner(
         if (!linux.isInstalled()) {
             return@withContext failure("The Linux environment is not installed")
         }
+        linux.ensureGuestDir("opt/mobileide/git")
+        linux.ensureGuestDir("root/.ssh/mobileide")
 
         val binds = mutableListOf<String>()
+        binds += "${paths.askpassDir.absolutePath}:/opt/mobileide/git"
+        binds += "${paths.sshDir.absolutePath}:/root/.ssh/mobileide"
         val guestWorkDir: String
         if (projectPath != null) {
             if (projectPath.contains(':')) {
@@ -72,6 +76,17 @@ class ProotGitRunner(
             put("TERM", "dumb")
             put("LC_ALL", "C")
             put("GIT_OPTIONAL_LOCKS", if (options.readOnly) "0" else "1")
+            put("GIT_ASKPASS", "/opt/mobileide/git/askpass.sh")
+            put("SSH_ASKPASS", "/opt/mobileide/git/askpass.sh")
+            put("SSH_ASKPASS_REQUIRE", "force")
+            put("DISPLAY", ":0")
+            put(
+                "GIT_SSH_COMMAND",
+                "ssh -i /root/.ssh/mobileide/id_ed25519 " +
+                    "-o IdentitiesOnly=yes " +
+                    "-o UserKnownHostsFile=/root/.ssh/mobileide/known_hosts " +
+                    "-o StrictHostKeyChecking=accept-new"
+            )
             putAll(options.extraEnv)
         }
 

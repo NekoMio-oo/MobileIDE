@@ -12,6 +12,7 @@ import dev.mobileide.domain.git.GitCommitDetailResult
 import dev.mobileide.domain.git.GitDiffResult
 import dev.mobileide.domain.git.GitFileChange
 import dev.mobileide.domain.git.GitHistoryResult
+import dev.mobileide.domain.git.GitRemotesResult
 import dev.mobileide.domain.git.GitRepository
 import dev.mobileide.domain.git.GitSnapshot
 import dev.mobileide.feature.git.model.GitBranchesUiState
@@ -19,6 +20,7 @@ import dev.mobileide.feature.git.model.GitCommitDetailUiState
 import dev.mobileide.feature.git.model.GitDiffRequest
 import dev.mobileide.feature.git.model.GitDiffUiState
 import dev.mobileide.feature.git.model.GitHistoryUiState
+import dev.mobileide.feature.git.model.GitRemotesUiState
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -59,6 +61,12 @@ class GitViewModel(
     private var branchesJob: Job? = null
     private var branchesReloadRequested = false
 
+    private val _remotes = MutableStateFlow(GitRemotesUiState())
+    val remotes: StateFlow<GitRemotesUiState> = _remotes.asStateFlow()
+    private var remotesLoaded = false
+    private var remotesJob: Job? = null
+    private var remotesReloadRequested = false
+
     private var resumedOnce = false
 
     init {
@@ -67,6 +75,7 @@ class GitViewModel(
             repository.revision.drop(1).collect {
                 historyLoaded = false
                 if (branchesLoaded) loadBranches(force = true)
+                if (remotesLoaded) loadRemotes(force = true)
             }
         }
     }
@@ -178,6 +187,101 @@ class GitViewModel(
         tabManager.tabs(projectId)
             .filter { it.isDirty }
             .map { it.name }
+
+    // ---- remotes and credentials -----------------------------------------
+
+    fun loadRemotes(force: Boolean = false) {
+        if (remotesJob?.isActive == true) {
+            if (force) remotesReloadRequested = true
+            return
+        }
+        if (remotesLoaded && !force) return
+        remotesJob = viewModelScope.launch {
+            _remotes.update { it.copy(isLoading = true, error = null) }
+            when (val result = repository.remotes(projectId)) {
+                is GitRemotesResult.Success -> {
+                    val identity = repository.identity()
+                    val sshKey = repository.sshKeyInfo()
+                    remotesLoaded = true
+                    _remotes.update {
+                        it.copy(
+                            isLoading = false,
+                            remotes = result.remotes,
+                            identity = identity,
+                            sshKey = sshKey,
+                            error = null
+                        )
+                    }
+                }
+
+                is GitRemotesResult.Failure -> {
+                    _remotes.update { it.copy(isLoading = false, error = result.error) }
+                }
+            }
+            remotesJob = null
+            if (remotesReloadRequested) {
+                remotesReloadRequested = false
+                loadRemotes(force = true)
+            }
+        }
+    }
+
+    fun addRemote(name: String, url: String) {
+        repository.addRemote(projectId, name, url)
+    }
+
+    fun setRemoteUrl(name: String, url: String) {
+        repository.setRemoteUrl(projectId, name, url)
+    }
+
+    fun removeRemote(name: String) {
+        repository.removeRemote(projectId, name)
+    }
+
+    fun fetchRemote(name: String) {
+        repository.fetchRemote(projectId, name)
+    }
+
+    fun pullRemote(name: String) {
+        repository.pullRemote(projectId, name, dirtyEditorFiles())
+    }
+
+    fun pushRemote(name: String) {
+        repository.pushRemote(projectId, name)
+    }
+
+    fun saveIdentity(name: String, email: String) {
+        viewModelScope.launch {
+            repository.saveIdentity(projectId, name, email)
+            loadRemotes(force = true)
+        }
+    }
+
+    fun saveHttpsCredential(host: String, username: String, token: String) {
+        viewModelScope.launch {
+            repository.saveHttpsCredential(projectId, host, username, token)
+            loadRemotes(force = true)
+        }
+    }
+
+    fun clearHttpsCredential(host: String) {
+        viewModelScope.launch {
+            repository.clearHttpsCredential(projectId, host)
+            loadRemotes(force = true)
+        }
+    }
+
+    fun generateSshKey() {
+        repository.generateSshKey(projectId)
+    }
+
+    fun importSshKey(privateKey: String, publicKey: String?, passphrase: String?) {
+        repository.importSshKey(projectId, privateKey, publicKey, passphrase)
+    }
+
+    fun deleteSshKey() {
+        repository.deleteSshKey(projectId)
+    }
 
     // ---- history ----------------------------------------------------------
 

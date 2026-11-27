@@ -110,6 +110,58 @@ interface GitRepository {
     /** Deletes only fully merged branches (`git branch -d`, never `-D`). */
     fun deleteBranch(projectId: Long, name: String)
 
+    // ---- remotes ----------------------------------------------------------
+
+    suspend fun remotes(projectId: Long): GitRemotesResult
+
+    fun addRemote(projectId: Long, name: String, url: String)
+
+    fun setRemoteUrl(projectId: Long, name: String, url: String)
+
+    fun removeRemote(projectId: Long, name: String)
+
+    fun fetchRemote(projectId: Long, remote: String)
+
+    /** Fast-forward only; blocked by tracked changes or dirty editor tabs. */
+    fun pullRemote(
+        projectId: Long,
+        remote: String,
+        dirtyEditorFiles: List<String> = emptyList()
+    )
+
+    /** Pushes the current branch; never force-pushes. */
+    fun pushRemote(projectId: Long, remote: String)
+
+    // ---- identity and credentials -----------------------------------------
+
+    suspend fun identity(): GitIdentity
+
+    suspend fun saveIdentity(projectId: Long, name: String, email: String): GitActionResult
+
+    suspend fun saveHttpsCredential(
+        projectId: Long,
+        host: String,
+        username: String,
+        token: String
+    ): GitActionResult
+
+    suspend fun clearHttpsCredential(projectId: Long, host: String): GitActionResult
+
+    suspend fun sshKeyInfo(): GitSshKeyInfo
+
+    /** Generates an ed25519 key without a passphrase and shows the public key. */
+    fun generateSshKey(projectId: Long)
+
+    /** Imports a private key (and optional public key/passphrase). */
+    fun importSshKey(
+        projectId: Long,
+        privateKey: String,
+        publicKey: String?,
+        passphrase: String?
+    )
+
+    fun deleteSshKey(projectId: Long)
+
     fun cancelOperation()
 
     fun clearMessage(projectId: Long)
