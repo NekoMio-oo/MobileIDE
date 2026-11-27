@@ -80,11 +80,13 @@ import dev.mobileide.domain.git.GitSnapshot
 fun GitProjectScreen(
     onBack: () -> Unit,
     onOpenRuntimes: () -> Unit,
+    onOpenFile: (String) -> Unit,
     modifier: Modifier = Modifier,
     viewModel: GitViewModel = viewModel()
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val diffState by viewModel.diffState.collectAsStateWithLifecycle()
+    val gitIgnoreState by viewModel.gitIgnore.collectAsStateWithLifecycle()
     val historyState by viewModel.history.collectAsStateWithLifecycle()
     val branchesState by viewModel.branches.collectAsStateWithLifecycle()
     val remotesState by viewModel.remotes.collectAsStateWithLifecycle()
@@ -131,6 +133,7 @@ fun GitProjectScreen(
             state = currentDiff,
             onBack = viewModel::closeDiff,
             onRetry = viewModel::retryDiff,
+            onOpenFile = onOpenFile,
             modifier = modifier
         )
         return
@@ -235,7 +238,8 @@ fun GitProjectScreen(
                         onStageAll = viewModel::stageAll,
                         onUnstageAll = viewModel::unstageAll,
                         onDiscard = { discardTarget = it },
-                        onOpenDiff = viewModel::openDiff
+                        onOpenDiff = viewModel::openDiff,
+                        onOpenGitIgnore = viewModel::openGitIgnore
                     )
 
                     GitPanelTab.HISTORY -> GitHistoryPanel(
@@ -338,6 +342,16 @@ fun GitProjectScreen(
                     Text(stringResource(R.string.git_cancel))
                 }
             }
+        )
+    }
+
+    gitIgnoreState?.let { ignoreState ->
+        GitIgnoreDialog(
+            state = ignoreState,
+            onContentChanged = viewModel::onGitIgnoreContentChanged,
+            onTemplate = viewModel::applyGitIgnoreTemplate,
+            onSave = viewModel::saveGitIgnore,
+            onDismiss = viewModel::closeGitIgnore
         )
     }
 
@@ -838,7 +852,8 @@ private fun GitChangesTab(
     onStageAll: () -> Unit,
     onUnstageAll: () -> Unit,
     onDiscard: (GitFileChange) -> Unit,
-    onOpenDiff: (GitFileChange, Boolean) -> Unit
+    onOpenDiff: (GitFileChange, Boolean) -> Unit,
+    onOpenGitIgnore: () -> Unit
 ) {
     Box(
         modifier = Modifier.fillMaxSize(),
@@ -872,6 +887,43 @@ private fun GitChangesTab(
                 onMessageChange = onCommitMessageChange,
                 onCommit = onCommit
             )
+            GitIgnoreCard(onOpen = onOpenGitIgnore)
+        }
+    }
+}
+
+@Composable
+private fun GitIgnoreCard(onOpen: () -> Unit) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.medium,
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+    ) {
+        Row(
+            modifier = Modifier.padding(
+                start = MobileIdeSpacing.lg,
+                end = MobileIdeSpacing.xs,
+                top = MobileIdeSpacing.md,
+                bottom = MobileIdeSpacing.md
+            ),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = stringResource(R.string.git_gitignore_title),
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    text = stringResource(R.string.git_gitignore_description),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            TextButton(onClick = onOpen) {
+                Text(stringResource(R.string.git_gitignore_open))
+            }
         }
     }
 }
@@ -1207,8 +1259,9 @@ private fun ChangeSection(
     }
     if (changes.size > MAX_VISIBLE_CHANGES) {
         Text(
-            text = stringResource(
-                R.string.git_more_changes,
+            text = pluralStringResource(
+                R.plurals.git_more_changes,
+                changes.size - MAX_VISIBLE_CHANGES,
                 changes.size - MAX_VISIBLE_CHANGES
             ),
             style = MaterialTheme.typography.labelSmall,

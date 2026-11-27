@@ -54,3 +54,12 @@ data class GitRemotesUiState(
     val sshKey: GitSshKeyInfo = GitSshKeyInfo(),
     val error: GitError? = null
 )
+
+/** Open .gitignore editor; [exists] decides create vs edit. */
+data class GitIgnoreUiState(
+    val isLoading: Boolean = true,
+    val exists: Boolean = false,
+    val content: String = "",
+    val isSaving: Boolean = false,
+    val error: GitError? = null
+)

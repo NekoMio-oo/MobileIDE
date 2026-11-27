@@ -367,3 +367,12 @@ data class GitSshKeyInfo(
     val privateKeyPath: String = "",
     val hasPassphrase: Boolean = false
 )
+
+sealed interface GitIgnoreResult {
+    data class Success(
+        val exists: Boolean,
+        val content: String = ""
+    ) : GitIgnoreResult
+
+    data class Failure(val error: GitError) : GitIgnoreResult
+}

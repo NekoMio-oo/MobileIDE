@@ -13,6 +13,7 @@ import dev.mobileide.domain.git.GitCommitDetailResult
 import dev.mobileide.domain.git.GitDiffResult
 import dev.mobileide.domain.git.GitErrorKind
 import dev.mobileide.domain.git.GitHistoryResult
+import dev.mobileide.domain.git.GitIgnoreResult
 import dev.mobileide.domain.git.GitInstallResult
 import dev.mobileide.domain.git.GitRemoteAuth
 import dev.mobileide.domain.git.GitRemotesResult
@@ -573,6 +574,43 @@ class GitRepositoryImplTest {
         assertNull(repository.observe(projectId).value.error)
         remotes = (repository.remotes(projectId) as GitRemotesResult.Success).remotes
         assertTrue(remotes.isEmpty())
+    }
+
+    @Test
+    fun `creates edits and applies gitignore without overwriting`() = runBlocking {
+        initializeRepository()
+        commitAll("initial")
+        repository.refresh(projectId)
+
+        val created = repository.writeGitIgnore(projectId, "*.log\n", overwrite = false)
+        assertEquals(GitActionResult.Success, created)
+        assertTrue(File(projectDir, ".gitignore").isFile)
+        assertEquals("*.log\n", File(projectDir, ".gitignore").readText())
+
+        val read = repository.readGitIgnore(projectId)
+        assertTrue(read is GitIgnoreResult.Success)
+        assertTrue((read as GitIgnoreResult.Success).exists)
+        assertEquals("*.log\n", read.content)
+
+        val duplicate = repository.writeGitIgnore(projectId, "*.tmp\n", overwrite = false)
+        assertTrue(duplicate is GitActionResult.Failure)
+        assertEquals("*.log\n", File(projectDir, ".gitignore").readText())
+
+        val edited = repository.writeGitIgnore(
+            projectId,
+            "*.log\nbuild/\n",
+            overwrite = true
+        )
+        assertEquals(GitActionResult.Success, edited)
+
+        File(projectDir, "debug.log").writeText("ignored\n")
+        repository.refresh(projectId)
+        val status = repository.observe(projectId).value.status!!
+        assertTrue(status.changes.none { it.path == "debug.log" })
+        assertTrue(
+            status.untracked.any { it.path == ".gitignore" } ||
+                status.staged.any { it.path == ".gitignore" }
+        )
     }
 
     private suspend fun initializeRepository() {

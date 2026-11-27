@@ -81,6 +81,7 @@ fun FileExplorerScreen(
     onOpenFile: (String) -> Unit,
     onOpenBuild: () -> Unit,
     onOpenTerminal: () -> Unit,
+    onOpenGit: () -> Unit,
     modifier: Modifier = Modifier,
     viewModel: FileExplorerViewModel = viewModel()
 ) {
@@ -162,6 +163,7 @@ fun FileExplorerScreen(
                 onRefresh = viewModel::refresh,
                 onBuild = onOpenBuild,
                 onTerminal = onOpenTerminal,
+                onGit = onOpenGit,
                 onProjectInfo = {
                     if (uiState.project != null) showProjectInfo = true
                 }

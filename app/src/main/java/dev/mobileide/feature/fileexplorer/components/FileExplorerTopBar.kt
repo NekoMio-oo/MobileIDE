@@ -44,6 +44,7 @@ fun FileExplorerTopBar(
     onRefresh: () -> Unit,
     onBuild: () -> Unit,
     onTerminal: () -> Unit,
+    onGit: () -> Unit,
     onProjectInfo: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -199,6 +200,20 @@ fun FileExplorerTopBar(
                         onClick = {
                             showMoreMenu = false
                             onTerminal()
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text(stringResource(R.string.git_title)) },
+                        leadingIcon = {
+                            Icon(
+                                painter = painterResource(R.drawable.ic_git),
+                                contentDescription = null,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        },
+                        onClick = {
+                            showMoreMenu = false
+                            onGit()
                         }
                     )
                     DropdownMenuItem(

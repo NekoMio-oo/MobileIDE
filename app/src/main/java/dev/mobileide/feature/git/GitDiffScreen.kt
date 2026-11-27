@@ -55,7 +55,8 @@ fun GitDiffScreen(
     state: GitDiffUiState,
     onBack: () -> Unit,
     onRetry: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onOpenFile: ((String) -> Unit)? = null
 ) {
     val diff = state.diff
     val file = diff?.files?.firstOrNull()
@@ -66,7 +67,8 @@ fun GitDiffScreen(
             staged = state.request.staged,
             commitHash = state.request.commitHash,
             diff = diff,
-            onBack = onBack
+            onBack = onBack,
+            onOpenFile = onOpenFile
         )
 
         when {
@@ -118,7 +120,8 @@ private fun GitDiffTopBar(
     staged: Boolean,
     commitHash: String?,
     diff: GitDiff?,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    onOpenFile: ((String) -> Unit)?
 ) {
     Box(
         modifier = Modifier.fillMaxWidth(),
@@ -186,6 +189,16 @@ private fun GitDiffTopBar(
                     ),
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+            }
+            if (onOpenFile != null && commitHash == null) {
+                IconButton(onClick = { onOpenFile(path) }) {
+                    Icon(
+                        painter = painterResource(R.drawable.ic_file_code),
+                        contentDescription = stringResource(R.string.git_open_file),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
             }
         }
     }

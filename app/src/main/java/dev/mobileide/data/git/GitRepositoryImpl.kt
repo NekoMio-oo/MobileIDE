@@ -6,6 +6,7 @@ import dev.mobileide.domain.git.GitBranch
 import dev.mobileide.domain.git.GitBranches
 import dev.mobileide.domain.git.GitBranchesResult
 import dev.mobileide.domain.git.GitIdentity
+import dev.mobileide.domain.git.GitIgnoreResult
 import dev.mobileide.domain.git.GitRemote
 import dev.mobileide.domain.git.GitRemoteAuth
 import dev.mobileide.domain.git.GitRemotesResult
@@ -33,6 +34,7 @@ import dev.mobileide.domain.repository.EntryFailure
 import dev.mobileide.domain.repository.ProjectFileError
 import dev.mobileide.domain.repository.ProjectRepository
 import dev.mobileide.domain.repository.ReadProjectFileResult
+import dev.mobileide.domain.repository.SaveProjectDocumentResult
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
@@ -1400,6 +1402,94 @@ class GitRepositoryImpl(
 
                 is GitActionResult.Failure ->
                     state.update { it.copy(error = result.error) }
+            }
+        }
+    }
+
+    override suspend fun readGitIgnore(projectId: Long): GitIgnoreResult =
+        withContext(Dispatchers.IO) {
+            val project = runCatching { projects.getProject(projectId) }.getOrNull()
+            val projectPath = project?.path
+            if (projectPath.isNullOrBlank()) {
+                return@withContext GitIgnoreResult.Failure(
+                    GitError(
+                        GitErrorKind.INVALID_PROJECT,
+                        "The project folder is not available."
+                    )
+                )
+            }
+            if (!File(projectPath, ".gitignore").isFile) {
+                return@withContext GitIgnoreResult.Success(exists = false)
+            }
+            when (val read = projects.readProjectFile(projectId, ".gitignore")) {
+                is ReadProjectFileResult.Success ->
+                    GitIgnoreResult.Success(exists = true, content = read.content)
+
+                is ReadProjectFileResult.Failure -> GitIgnoreResult.Failure(
+                    GitError(
+                        kind = when (read.error) {
+                            ProjectFileError.NOT_FOUND -> GitErrorKind.NOT_FOUND
+                            ProjectFileError.PERMISSION_DENIED -> GitErrorKind.PERMISSION_DENIED
+                            ProjectFileError.FILE_TOO_LARGE -> GitErrorKind.OUTPUT_TRUNCATED
+                            else -> GitErrorKind.IO
+                        },
+                        message = "Could not read .gitignore.",
+                        detail = read.detail
+                    )
+                )
+            }
+        }
+
+    override suspend fun writeGitIgnore(
+        projectId: Long,
+        content: String,
+        overwrite: Boolean
+    ): GitActionResult = withContext(Dispatchers.IO) {
+        val state = stateOf(projectId)
+        val project = runCatching { projects.getProject(projectId) }.getOrNull()
+        val projectPath = project?.path
+        if (projectPath.isNullOrBlank()) {
+            val error = GitError(
+                GitErrorKind.INVALID_PROJECT,
+                "The project folder is not available."
+            )
+            state.update { it.copy(error = error) }
+            return@withContext GitActionResult.Failure(error)
+        }
+        val exists = File(projectPath, ".gitignore").isFile
+        if (exists && !overwrite) {
+            val error = GitError(
+                GitErrorKind.UNKNOWN,
+                "A .gitignore already exists. Open it instead."
+            )
+            state.update { it.copy(error = error) }
+            return@withContext GitActionResult.Failure(error)
+        }
+        if (content.isBlank()) {
+            val error = GitError(GitErrorKind.UNKNOWN, "Enter .gitignore content.")
+            state.update { it.copy(error = error) }
+            return@withContext GitActionResult.Failure(error)
+        }
+        when (val result = projects.saveProjectDocument(projectId, ".gitignore", content)) {
+            SaveProjectDocumentResult.Success -> {
+                state.update { it.copy(message = ".gitignore saved.", error = null) }
+                refreshInternal(projectId)
+                bumpRevision()
+                GitActionResult.Success
+            }
+
+            is SaveProjectDocumentResult.Failure -> {
+                val error = GitError(
+                    kind = when (result.error) {
+                        ProjectFileError.NOT_FOUND -> GitErrorKind.NOT_FOUND
+                        ProjectFileError.PERMISSION_DENIED -> GitErrorKind.PERMISSION_DENIED
+                        else -> GitErrorKind.IO
+                    },
+                    message = "Could not write .gitignore.",
+                    detail = result.detail
+                )
+                state.update { it.copy(error = error) }
+                GitActionResult.Failure(error)
             }
         }
     }

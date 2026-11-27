@@ -68,10 +68,12 @@ fun MobileIdeNavHost(
         composable(
             route = Routes.GIT_PROJECT,
             arguments = listOf(navArgument("projectId") { type = NavType.StringType })
-        ) {
+        ) { entry ->
+            val projectId = entry.arguments?.getString("projectId")?.toLongOrNull() ?: 0L
             GitProjectScreen(
                 onBack = { navController.popBackStack() },
-                onOpenRuntimes = { navController.navigate(Routes.RUNTIMES) }
+                onOpenRuntimes = { navController.navigate(Routes.RUNTIMES) },
+                onOpenFile = { path -> navController.navigate(Routes.editor(projectId, path)) }
             )
         }
 
@@ -120,7 +122,8 @@ fun MobileIdeNavHost(
                 onBack = { navController.popBackStack() },
                 onOpenFile = { path -> navController.navigate(Routes.editor(projectId, path)) },
                 onOpenBuild = { navController.navigate(Routes.build(projectId)) },
-                onOpenTerminal = { navController.navigate(Routes.terminal(projectId)) }
+                onOpenTerminal = { navController.navigate(Routes.terminal(projectId)) },
+                onOpenGit = { navController.navigate(Routes.gitProject(projectId)) }
             )
         }
 

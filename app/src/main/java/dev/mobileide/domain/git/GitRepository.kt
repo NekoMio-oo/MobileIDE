@@ -162,6 +162,21 @@ interface GitRepository {
 
     fun deleteSshKey(projectId: Long)
 
+    // ---- .gitignore -------------------------------------------------------
+
+    suspend fun readGitIgnore(projectId: Long): GitIgnoreResult
+
+    /**
+     * Writes .gitignore. [overwrite] must be true when the file already exists;
+     * callers use false for the create flow so an existing file is never
+     * silently replaced.
+     */
+    suspend fun writeGitIgnore(
+        projectId: Long,
+        content: String,
+        overwrite: Boolean
+    ): GitActionResult
+
     fun cancelOperation()
 
     fun clearMessage(projectId: Long)

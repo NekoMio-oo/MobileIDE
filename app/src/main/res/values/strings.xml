@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<resources>
+<resources xmlns:tools="http://schemas.android.com/tools">
     <string name="app_name">MobileIDE</string>
 
     <string name="nav_home">Home</string>
@@ -44,7 +44,6 @@
     <string name="project_menu_delete_files">Delete project files</string>
 
     <string name="git_title">Git</string>
-    <string name="git_description">Review changes, commit, branch and sync repositories.</string>
     <string name="git_landing_subtitle">Choose a project to manage its repository.</string>
     <string name="git_landing_empty_title">No projects yet</string>
     <string name="git_landing_empty_description">Create or open a project before using Git.</string>
@@ -76,7 +75,7 @@
     <string name="git_head">HEAD</string>
     <string name="git_upstream">Upstream</string>
     <string name="git_ahead_behind">Ahead / behind</string>
-    <string name="git_ahead_behind_value">%1$d ahead, %2$d behind</string>
+    <string name="git_ahead_behind_value" tools:ignore="PluralsCandidate">%1$d ahead, %2$d behind</string>
     <string name="git_working_tree">Working tree</string>
     <string name="git_no_commits">No commits yet</string>
     <string name="git_detached">Detached HEAD</string>
@@ -86,7 +85,7 @@
     <string name="git_git_version">Git version</string>
     <string name="git_not_available">—</string>
     <string name="git_changes_truncated">The change list was truncated. Add patterns to .gitignore to reduce it.</string>
-    <string name="git_more_changes">…and %1$d more changes</string>
+
     <string name="git_section_staged">Staged</string>
     <string name="git_section_unstaged">Changes</string>
     <string name="git_section_untracked">Untracked</string>
@@ -139,7 +138,7 @@
     <string name="git_branch_empty_description">Create a branch to get started.</string>
     <string name="git_branch_remote_empty">No remote branches. Add a remote and fetch first.</string>
     <string name="git_branch_upstream">Upstream %1$s</string>
-    <string name="git_branch_ahead_behind">%1$d ahead, %2$d behind</string>
+    <string name="git_branch_ahead_behind" tools:ignore="PluralsCandidate">%1$d ahead, %2$d behind</string>
     <string name="git_branch_gone">Upstream gone</string>
     <string name="git_tab_remotes">Remotes</string>
     <string name="git_remotes_title">Remotes</string>
@@ -204,6 +203,15 @@
     <string name="git_credential_security">Tokens are encrypted with the Android Keystore and never written into the repository or logs.</string>
     <string name="git_credential_clear">Clear saved credential</string>
     <string name="git_credential_save">Save</string>
+    <string name="git_gitignore_title">.gitignore</string>
+    <string name="git_gitignore_description">Control which files Git ignores.</string>
+    <string name="git_gitignore_open">Open</string>
+    <string name="git_gitignore_template">Template</string>
+    <string name="git_gitignore_note">Templates are appended to the current content. Existing entries are never replaced automatically.</string>
+    <string name="git_gitignore_save">Save</string>
+    <string name="git_gitignore_existing">Editing the existing .gitignore.</string>
+    <string name="git_gitignore_new">A new .gitignore will be created.</string>
+    <string name="git_open_file">Open file</string>
     <string name="git_history_search_hint">Search commits</string>
     <string name="git_history_empty_title">No commits</string>
     <string name="git_history_empty_description">Commits will appear here after the first commit.</string>
@@ -244,6 +252,10 @@
     <plurals name="git_commit_staged">
         <item quantity="one">%1$d staged file</item>
         <item quantity="other">%1$d staged files</item>
+    </plurals>
+    <plurals name="git_more_changes">
+        <item quantity="one">…and %1$d more change</item>
+        <item quantity="other">…and %1$d more changes</item>
     </plurals>
 
     <string name="settings_title">Settings</string>

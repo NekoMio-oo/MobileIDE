@@ -11,7 +11,10 @@ import dev.mobileide.domain.git.GitCommit
 import dev.mobileide.domain.git.GitCommitDetailResult
 import dev.mobileide.domain.git.GitDiffResult
 import dev.mobileide.domain.git.GitFileChange
+import dev.mobileide.domain.git.GitActionResult
 import dev.mobileide.domain.git.GitHistoryResult
+import dev.mobileide.domain.git.GitIgnoreResult
+import dev.mobileide.domain.git.GitIgnoreTemplate
 import dev.mobileide.domain.git.GitRemotesResult
 import dev.mobileide.domain.git.GitRepository
 import dev.mobileide.domain.git.GitSnapshot
@@ -20,6 +23,7 @@ import dev.mobileide.feature.git.model.GitCommitDetailUiState
 import dev.mobileide.feature.git.model.GitDiffRequest
 import dev.mobileide.feature.git.model.GitDiffUiState
 import dev.mobileide.feature.git.model.GitHistoryUiState
+import dev.mobileide.feature.git.model.GitIgnoreUiState
 import dev.mobileide.feature.git.model.GitRemotesUiState
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -66,6 +70,9 @@ class GitViewModel(
     private var remotesLoaded = false
     private var remotesJob: Job? = null
     private var remotesReloadRequested = false
+
+    private val _gitIgnore = MutableStateFlow<GitIgnoreUiState?>(null)
+    val gitIgnore: StateFlow<GitIgnoreUiState?> = _gitIgnore.asStateFlow()
 
     private var resumedOnce = false
 
@@ -281,6 +288,68 @@ class GitViewModel(
 
     fun deleteSshKey() {
         repository.deleteSshKey(projectId)
+    }
+
+    // ---- .gitignore -------------------------------------------------------
+
+    fun openGitIgnore() {
+        _gitIgnore.value = GitIgnoreUiState(isLoading = true)
+        viewModelScope.launch {
+            when (val result = repository.readGitIgnore(projectId)) {
+                is GitIgnoreResult.Success -> _gitIgnore.value = GitIgnoreUiState(
+                    isLoading = false,
+                    exists = result.exists,
+                    content = result.content
+                )
+
+                is GitIgnoreResult.Failure -> _gitIgnore.value = GitIgnoreUiState(
+                    isLoading = false,
+                    error = result.error
+                )
+            }
+        }
+    }
+
+    fun onGitIgnoreContentChanged(content: String) {
+        _gitIgnore.update { it?.copy(content = content, error = null) }
+    }
+
+    fun applyGitIgnoreTemplate(template: GitIgnoreTemplate) {
+        _gitIgnore.update { current ->
+            if (current == null) {
+                current
+            } else {
+                val base = current.content.trimEnd()
+                val addition = template.contentWithNewline
+                current.copy(
+                    content = if (base.isEmpty()) addition else base + "\n\n" + addition
+                )
+            }
+        }
+    }
+
+    fun saveGitIgnore() {
+        val current = _gitIgnore.value ?: return
+        viewModelScope.launch {
+            _gitIgnore.update { it?.copy(isSaving = true, error = null) }
+            when (
+                val result = repository.writeGitIgnore(
+                    projectId = projectId,
+                    content = current.content,
+                    overwrite = current.exists
+                )
+            ) {
+                GitActionResult.Success -> _gitIgnore.value = null
+                is GitActionResult.Failure -> _gitIgnore.update {
+                    it?.copy(isSaving = false, error = result.error)
+                }
+            }
+        }
+    }
+
+    fun closeGitIgnore() {
+        if (_gitIgnore.value?.isSaving == true) return
+        _gitIgnore.value = null
     }
 
     // ---- history ----------------------------------------------------------
