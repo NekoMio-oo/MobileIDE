@@ -1,5 +1,8 @@
 package dev.mobileide.feature.git.model
 
+import dev.mobileide.domain.git.GitCommit
+import dev.mobileide.domain.git.GitCommitDetail
+import dev.mobileide.domain.git.GitError
 import dev.mobileide.domain.model.Project
 
 /** One row of the Git project picker. */
@@ -12,4 +15,21 @@ data class GitLandingUiState(
     val isLoading: Boolean = true,
     val projects: List<GitProjectItem> = emptyList(),
     val loadFailed: Boolean = false
+)
+
+/** Loaded commit list plus the client-side search query. */
+data class GitHistoryUiState(
+    val isLoading: Boolean = false,
+    val commits: List<GitCommit> = emptyList(),
+    val query: String = "",
+    val truncated: Boolean = false,
+    val error: GitError? = null
+)
+
+/** Full-screen commit detail; [hash] is kept while the request is loading. */
+data class GitCommitDetailUiState(
+    val hash: String,
+    val isLoading: Boolean = true,
+    val detail: GitCommitDetail? = null,
+    val error: GitError? = null
 )

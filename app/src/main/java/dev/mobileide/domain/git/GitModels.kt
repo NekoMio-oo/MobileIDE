@@ -253,3 +253,52 @@ sealed interface GitDiffResult {
     data class Success(val diff: GitDiff) : GitDiffResult
     data class Failure(val error: GitError) : GitDiffResult
 }
+
+// ---- Commits and history -----------------------------------------------------
+
+data class GitCommit(
+    val hash: String,
+    val shortHash: String,
+    val authorName: String,
+    val authorEmail: String,
+    /** ISO-8601 author date, e.g. 2026-11-27T18:08:10+08:00. */
+    val date: String,
+    val subject: String,
+    val refs: List<String> = emptyList(),
+    val parents: List<String> = emptyList()
+) {
+    val isMerge: Boolean
+        get() = parents.size > 1
+}
+
+data class GitCommitFile(
+    val path: String,
+    val oldPath: String? = null,
+    val change: GitChangeKind
+)
+
+data class GitCommitDetail(
+    val commit: GitCommit,
+    /** Full commit message, including the body. */
+    val message: String,
+    val files: List<GitCommitFile> = emptyList(),
+    /** Local branches that contain this commit. */
+    val branches: List<String> = emptyList(),
+    /** Parent used for the file list and diffs; null for a root commit. */
+    val compareParent: String? = null,
+    val truncated: Boolean = false
+)
+
+sealed interface GitHistoryResult {
+    data class Success(
+        val commits: List<GitCommit>,
+        val truncated: Boolean = false
+    ) : GitHistoryResult
+
+    data class Failure(val error: GitError) : GitHistoryResult
+}
+
+sealed interface GitCommitDetailResult {
+    data class Success(val detail: GitCommitDetail) : GitCommitDetailResult
+    data class Failure(val error: GitError) : GitCommitDetailResult
+}

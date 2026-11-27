@@ -115,6 +115,31 @@
     <string name="git_diff_too_large_title">File too large</string>
     <string name="git_diff_too_large_description">This file exceeds the 2 MB preview limit.</string>
     <string name="git_diff_truncated">The diff was truncated at the display limit.</string>
+    <string name="git_tab_overview">Overview</string>
+    <string name="git_tab_changes">Changes</string>
+    <string name="git_tab_history">History</string>
+    <string name="git_history_search_hint">Search commits</string>
+    <string name="git_history_empty_title">No commits</string>
+    <string name="git_history_empty_description">Commits will appear here after the first commit.</string>
+    <string name="git_history_no_matches_title">No matching commits</string>
+    <string name="git_history_no_matches_description">Try a different message, author or hash.</string>
+    <string name="git_history_truncated">Showing only the most recent commits.</string>
+    <string name="git_commit_card_title">Commit</string>
+    <string name="git_commit_message_label">Commit message</string>
+    <string name="git_commit_no_staged">Stage at least one file before committing.</string>
+    <string name="git_commit_action">Commit</string>
+    <string name="git_commit_detail_author">Author</string>
+    <string name="git_commit_detail_date">Date</string>
+    <string name="git_commit_detail_refs">Refs</string>
+    <string name="git_commit_detail_branches">Branches</string>
+    <string name="git_commit_detail_parents">Parents</string>
+    <string name="git_commit_detail_root">Root commit</string>
+    <string name="git_commit_detail_merge">Merge commit · compared with the first parent</string>
+    <string name="git_commit_detail_message">Message</string>
+    <string name="git_commit_detail_files_count">Files (%1$d)</string>
+    <string name="git_commit_detail_no_files">No files changed.</string>
+    <string name="git_commit_detail_truncated">The file list was truncated.</string>
+    <string name="git_diff_commit_mode">Commit %1$s</string>
     <string name="git_error_title">Git error</string>
     <string name="git_error_unknown">The Git operation failed.</string>
     <string name="git_change_modified">Modified</string>
@@ -129,6 +154,10 @@
     <plurals name="git_changes">
         <item quantity="one">%1$d changed file</item>
         <item quantity="other">%1$d changed files</item>
+    </plurals>
+    <plurals name="git_commit_staged">
+        <item quantity="one">%1$d staged file</item>
+        <item quantity="other">%1$d staged files</item>
     </plurals>
 
     <string name="settings_title">Settings</string>

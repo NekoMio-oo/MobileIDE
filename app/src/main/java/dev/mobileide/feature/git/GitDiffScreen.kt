@@ -64,6 +64,7 @@ fun GitDiffScreen(
         GitDiffTopBar(
             path = state.request.path,
             staged = state.request.staged,
+            commitHash = state.request.commitHash,
             diff = diff,
             onBack = onBack
         )
@@ -115,6 +116,7 @@ fun GitDiffScreen(
 private fun GitDiffTopBar(
     path: String,
     staged: Boolean,
+    commitHash: String?,
     diff: GitDiff?,
     onBack: () -> Unit
 ) {
@@ -157,13 +159,15 @@ private fun GitDiffTopBar(
                     overflow = TextOverflow.Ellipsis
                 )
                 Text(
-                    text = stringResource(
-                        if (staged) {
-                            R.string.git_diff_staged_mode
-                        } else {
-                            R.string.git_diff_worktree_mode
-                        }
-                    ),
+                    text = when {
+                        commitHash != null -> stringResource(
+                            R.string.git_diff_commit_mode,
+                            shortGitHash(commitHash)
+                        )
+
+                        staged -> stringResource(R.string.git_diff_staged_mode)
+                        else -> stringResource(R.string.git_diff_worktree_mode)
+                    },
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,

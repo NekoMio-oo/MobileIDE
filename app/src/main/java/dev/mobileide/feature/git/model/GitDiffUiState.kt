@@ -8,7 +8,10 @@ import dev.mobileide.domain.git.GitFileChange
 data class GitDiffRequest(
     val path: String,
     val staged: Boolean,
-    val change: GitFileChange
+    /** Set for working tree / index diffs. */
+    val change: GitFileChange? = null,
+    /** Set for a file inside a commit; the diff compares with the first parent. */
+    val commitHash: String? = null
 )
 
 data class GitDiffUiState(

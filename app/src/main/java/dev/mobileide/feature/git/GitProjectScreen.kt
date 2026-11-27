@@ -1,6 +1,7 @@
 package dev.mobileide.feature.git
 
 import androidx.activity.compose.BackHandler
+import androidx.annotation.StringRes
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -30,11 +31,14 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.ScrollableTabRow
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -43,7 +47,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
@@ -81,10 +84,15 @@ fun GitProjectScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val diffState by viewModel.diffState.collectAsStateWithLifecycle()
+    val historyState by viewModel.history.collectAsStateWithLifecycle()
+    val commitDetailState by viewModel.commitDetail.collectAsStateWithLifecycle()
     var showInitDialog by rememberSaveable { mutableStateOf(false) }
     var showInstallDialog by rememberSaveable { mutableStateOf(false) }
     var branchInput by rememberSaveable { mutableStateOf("main") }
     var discardTarget by remember { mutableStateOf<GitFileChange?>(null) }
+    var selectedTabOrdinal by rememberSaveable { mutableStateOf(GitPanelTab.OVERVIEW.ordinal) }
+    var commitMessage by rememberSaveable { mutableStateOf("") }
+    val selectedTab = GitPanelTab.entries[selectedTabOrdinal]
 
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
@@ -95,7 +103,21 @@ fun GitProjectScreen(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    BackHandler(enabled = diffState != null) { viewModel.closeDiff() }
+    LaunchedEffect(selectedTabOrdinal, state.availability) {
+        if (state.availability == GitAvailability.READY &&
+            selectedTab == GitPanelTab.HISTORY
+        ) {
+            viewModel.loadHistory()
+        }
+    }
+
+    BackHandler(enabled = diffState != null || commitDetailState != null) {
+        if (diffState != null) {
+            viewModel.closeDiff()
+        } else {
+            viewModel.closeCommitDetail()
+        }
+    }
 
     val currentDiff = diffState
     if (currentDiff != null) {
@@ -108,11 +130,31 @@ fun GitProjectScreen(
         return
     }
 
+    val currentCommitDetail = commitDetailState
+    if (currentCommitDetail != null) {
+        GitCommitDetailScreen(
+            state = currentCommitDetail,
+            onBack = viewModel::closeCommitDetail,
+            onRetry = viewModel::retryCommitDetail,
+            onOpenParent = viewModel::openParentCommit,
+            onOpenFile = viewModel::openCommitFileDiff,
+            modifier = modifier
+        )
+        return
+    }
+
     Column(modifier = modifier.fillMaxSize()) {
         GitProjectTopBar(
             title = state.projectName.ifBlank { stringResource(R.string.git_title) },
             onBack = onBack,
-            onRefresh = viewModel::refresh,
+            onRefresh = {
+                viewModel.refresh()
+                if (state.availability == GitAvailability.READY &&
+                    selectedTab == GitPanelTab.HISTORY
+                ) {
+                    viewModel.loadHistory(force = true)
+                }
+            },
             refreshEnabled = !state.isBusy
         )
 
@@ -165,16 +207,36 @@ fun GitProjectScreen(
                 onRetry = viewModel::refresh
             )
 
-            else -> GitOverviewContent(
-                state = state,
-                busy = state.isBusy,
-                onStage = viewModel::stage,
-                onUnstage = viewModel::unstage,
-                onStageAll = viewModel::stageAll,
-                onUnstageAll = viewModel::unstageAll,
-                onDiscard = { discardTarget = it },
-                onOpenDiff = viewModel::openDiff
-            )
+            else -> {
+                GitPanelTabs(
+                    selectedTab = selectedTab,
+                    onSelect = { tab -> selectedTabOrdinal = tab.ordinal }
+                )
+                when (selectedTab) {
+                    GitPanelTab.OVERVIEW -> GitOverviewTab(state)
+
+                    GitPanelTab.CHANGES -> GitChangesTab(
+                        state = state,
+                        busy = state.isBusy,
+                        commitMessage = commitMessage,
+                        onCommitMessageChange = { commitMessage = it },
+                        onCommit = { viewModel.commit(commitMessage) },
+                        onStage = viewModel::stage,
+                        onUnstage = viewModel::unstage,
+                        onStageAll = viewModel::stageAll,
+                        onUnstageAll = viewModel::unstageAll,
+                        onDiscard = { discardTarget = it },
+                        onOpenDiff = viewModel::openDiff
+                    )
+
+                    GitPanelTab.HISTORY -> GitHistoryPanel(
+                        state = historyState,
+                        onQueryChange = viewModel::onHistoryQueryChanged,
+                        onRetry = { viewModel.loadHistory(force = true) },
+                        onOpenCommit = viewModel::openCommit
+                    )
+                }
+            }
         }
     }
 
@@ -667,10 +729,67 @@ private fun MessageBanner(
     }
 }
 
+private enum class GitPanelTab(@StringRes val labelRes: Int) {
+    OVERVIEW(R.string.git_tab_overview),
+    CHANGES(R.string.git_tab_changes),
+    HISTORY(R.string.git_tab_history)
+}
+
 @Composable
-private fun GitOverviewContent(
+private fun GitPanelTabs(
+    selectedTab: GitPanelTab,
+    onSelect: (GitPanelTab) -> Unit
+) {
+    ScrollableTabRow(
+        selectedTabIndex = selectedTab.ordinal,
+        edgePadding = 0.dp,
+        containerColor = MaterialTheme.colorScheme.background,
+        contentColor = MaterialTheme.colorScheme.primary
+    ) {
+        GitPanelTab.entries.forEach { tab ->
+            Tab(
+                selected = tab == selectedTab,
+                onClick = { onSelect(tab) },
+                text = {
+                    Text(
+                        text = stringResource(tab.labelRes),
+                        style = MaterialTheme.typography.labelLarge
+                    )
+                }
+            )
+        }
+    }
+}
+
+@Composable
+private fun GitOverviewTab(state: GitSnapshot) {
+    Box(
+        modifier = Modifier.fillMaxSize(),
+        contentAlignment = Alignment.TopCenter
+    ) {
+        Column(
+            modifier = Modifier
+                .widthIn(max = MobileIdeDimens.contentMaxWidth)
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .padding(
+                    horizontal = MobileIdeDimens.screenHorizontalPadding,
+                    vertical = MobileIdeSpacing.md
+                ),
+            verticalArrangement = Arrangement.spacedBy(MobileIdeSpacing.md)
+        ) {
+            RepositoryCard(state)
+        }
+    }
+}
+
+@Composable
+private fun GitChangesTab(
     state: GitSnapshot,
     busy: Boolean,
+    commitMessage: String,
+    onCommitMessageChange: (String) -> Unit,
+    onCommit: () -> Unit,
     onStage: (GitFileChange) -> Unit,
     onUnstage: (GitFileChange) -> Unit,
     onStageAll: () -> Unit,
@@ -693,7 +812,6 @@ private fun GitOverviewContent(
                 ),
             verticalArrangement = Arrangement.spacedBy(MobileIdeSpacing.md)
         ) {
-            RepositoryCard(state)
             ChangesCard(
                 status = state.status,
                 busy = busy,
@@ -704,6 +822,81 @@ private fun GitOverviewContent(
                 onDiscard = onDiscard,
                 onOpenDiff = onOpenDiff
             )
+            CommitCard(
+                state = state,
+                busy = busy,
+                message = commitMessage,
+                onMessageChange = onCommitMessageChange,
+                onCommit = onCommit
+            )
+        }
+    }
+}
+
+@Composable
+private fun CommitCard(
+    state: GitSnapshot,
+    busy: Boolean,
+    message: String,
+    onMessageChange: (String) -> Unit,
+    onCommit: () -> Unit
+) {
+    val staged = state.status?.staged.orEmpty()
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.medium,
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+    ) {
+        Column(modifier = Modifier.padding(MobileIdeSpacing.lg)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = stringResource(R.string.git_commit_card_title),
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.weight(1f)
+                )
+                Text(
+                    text = pluralStringResource(
+                        R.plurals.git_commit_staged,
+                        staged.size,
+                        staged.size
+                    ),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Spacer(Modifier.height(MobileIdeSpacing.sm))
+
+            if (staged.isEmpty()) {
+                Text(
+                    text = stringResource(R.string.git_commit_no_staged),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            } else {
+                OutlinedTextField(
+                    value = message,
+                    onValueChange = onMessageChange,
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text(stringResource(R.string.git_commit_message_label)) },
+                    minLines = 3,
+                    maxLines = 6,
+                    enabled = !busy
+                )
+                Spacer(Modifier.height(MobileIdeSpacing.sm))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    Button(
+                        onClick = onCommit,
+                        enabled = !busy && message.isNotBlank()
+                    ) {
+                        Text(stringResource(R.string.git_commit_action))
+                    }
+                }
+            }
         }
     }
 }
@@ -1003,7 +1196,7 @@ private fun GitChangeRow(
                 .padding(top = 6.dp)
                 .size(8.dp)
                 .clip(CircleShape)
-                .background(changeColor(change.displayChange))
+                .background(gitChangeColor(change.displayChange))
         )
         Spacer(Modifier.width(MobileIdeSpacing.sm))
         val openModifier = if (onOpen != null) {
@@ -1027,7 +1220,7 @@ private fun GitChangeRow(
                 overflow = TextOverflow.Ellipsis
             )
             Text(
-                text = changeKindLabel(change.displayChange),
+                text = gitChangeKindLabel(change.displayChange),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -1104,32 +1297,5 @@ private fun changeLabel(change: GitFileChange): String =
     } else {
         change.path
     }
-
-@Composable
-private fun changeKindLabel(kind: GitChangeKind): String = when (kind) {
-    GitChangeKind.MODIFIED -> stringResource(R.string.git_change_modified)
-    GitChangeKind.ADDED -> stringResource(R.string.git_change_added)
-    GitChangeKind.DELETED -> stringResource(R.string.git_change_deleted)
-    GitChangeKind.RENAMED -> stringResource(R.string.git_change_renamed)
-    GitChangeKind.COPIED -> stringResource(R.string.git_change_copied)
-    GitChangeKind.TYPE_CHANGED -> stringResource(R.string.git_change_type_changed)
-    GitChangeKind.UNTRACKED -> stringResource(R.string.git_change_untracked)
-    GitChangeKind.CONFLICTED -> stringResource(R.string.git_change_conflicted)
-    GitChangeKind.UNKNOWN -> stringResource(R.string.git_change_unknown)
-}
-
-@Composable
-private fun changeColor(kind: GitChangeKind): Color = when (kind) {
-    GitChangeKind.CONFLICTED,
-    GitChangeKind.DELETED -> MaterialTheme.colorScheme.error
-
-    GitChangeKind.UNTRACKED,
-    GitChangeKind.ADDED -> MaterialTheme.colorScheme.tertiary
-
-    GitChangeKind.RENAMED,
-    GitChangeKind.COPIED -> MaterialTheme.colorScheme.secondary
-
-    else -> MaterialTheme.colorScheme.primary
-}
 
 private const val MAX_VISIBLE_CHANGES = 50

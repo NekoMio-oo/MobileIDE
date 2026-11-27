@@ -1,6 +1,9 @@
 package dev.mobileide.data.git
 
 import dev.mobileide.domain.git.GitAvailability
+import dev.mobileide.domain.git.GitCommit
+import dev.mobileide.domain.git.GitCommitDetail
+import dev.mobileide.domain.git.GitCommitDetailResult
 import dev.mobileide.domain.git.GitDiff
 import dev.mobileide.domain.git.GitDiffFile
 import dev.mobileide.domain.git.GitDiffHunk
@@ -10,6 +13,7 @@ import dev.mobileide.domain.git.GitDiffResult
 import dev.mobileide.domain.git.GitError
 import dev.mobileide.domain.git.GitErrorKind
 import dev.mobileide.domain.git.GitFileChange
+import dev.mobileide.domain.git.GitHistoryResult
 import dev.mobileide.domain.git.GitOperation
 import dev.mobileide.domain.git.GitOperationKind
 import dev.mobileide.domain.git.GitRepoInfo
@@ -538,6 +542,265 @@ class GitRepositoryImpl(
         )
     }
 
+    override fun commit(projectId: Long, message: String) {
+        val state = stateOf(projectId)
+        val trimmed = message.trim()
+        if (trimmed.isEmpty()) {
+            state.update {
+                it.copy(error = GitError(GitErrorKind.UNKNOWN, "Enter a commit message."))
+            }
+            return
+        }
+        val status = state.value.status
+        if (state.value.availability != GitAvailability.READY || status == null) {
+            state.update {
+                it.copy(
+                    error = GitError(
+                        GitErrorKind.NOT_A_REPO,
+                        "The repository is not ready."
+                    )
+                )
+            }
+            return
+        }
+        if (status.conflicted.isNotEmpty()) {
+            state.update {
+                it.copy(
+                    error = GitError(
+                        GitErrorKind.CONFLICT,
+                        "Resolve conflicted files before committing."
+                    )
+                )
+            }
+            return
+        }
+        if (status.staged.isEmpty()) {
+            state.update {
+                it.copy(
+                    error = GitError(
+                        GitErrorKind.UNKNOWN,
+                        "No staged changes to commit."
+                    )
+                )
+            }
+            return
+        }
+
+        launchRepositoryOperation(
+            projectId = projectId,
+            kind = GitOperationKind.COMMIT,
+            title = "Committing changes"
+        ) { projectPath ->
+            val result = runner.run(
+                projectPath = projectPath,
+                args = listOf("commit", "-m", trimmed),
+                options = GitRunOptions(timeoutMs = MUTATION_TIMEOUT_MS, readOnly = false)
+            )
+            if (!result.isSuccess) {
+                failOperation(projectId, errorFrom(result, "Commit failed."))
+                return@launchRepositoryOperation
+            }
+            state.update { it.copy(message = "Commit created.") }
+            refreshInternal(projectId)
+        }
+    }
+
+    override suspend fun history(
+        projectId: Long,
+        limit: Int
+    ): GitHistoryResult = withContext(Dispatchers.IO) {
+        val project = runCatching { projects.getProject(projectId) }.getOrNull()
+        val projectPath = project?.path
+        if (projectPath.isNullOrBlank()) {
+            return@withContext GitHistoryResult.Failure(
+                GitError(GitErrorKind.INVALID_PROJECT, "The project folder is not available.")
+            )
+        }
+        if (!linuxInstalled()) {
+            return@withContext GitHistoryResult.Failure(
+                GitError(GitErrorKind.LINUX_MISSING, "Install the Linux environment first.")
+            )
+        }
+
+        val count = limit.coerceIn(1, MAX_HISTORY_LIMIT)
+        val result = runner.run(
+            projectPath = projectPath,
+            args = listOf(
+                "log",
+                "-n", (count + 1).toString(),
+                "--no-color",
+                "--date=iso-strict",
+                "--pretty=format:$HISTORY_FORMAT"
+            ),
+            options = GitRunOptions(timeoutMs = HISTORY_TIMEOUT_MS)
+        )
+        if (!result.isSuccess) {
+            if (isUnbornRepository(result)) {
+                return@withContext GitHistoryResult.Success(emptyList())
+            }
+            return@withContext GitHistoryResult.Failure(
+                errorFrom(result, "Could not load the commit history.")
+            )
+        }
+        val commits = GitLogParser.parse(result.stdout)
+        val truncated = commits.size > count || result.stdoutTruncated
+        GitHistoryResult.Success(commits.take(count), truncated)
+    }
+
+    override suspend fun commitDetail(
+        projectId: Long,
+        hash: String
+    ): GitCommitDetailResult = withContext(Dispatchers.IO) {
+        val project = runCatching { projects.getProject(projectId) }.getOrNull()
+        val projectPath = project?.path
+        if (projectPath.isNullOrBlank()) {
+            return@withContext GitCommitDetailResult.Failure(
+                GitError(GitErrorKind.INVALID_PROJECT, "The project folder is not available.")
+            )
+        }
+        if (!linuxInstalled()) {
+            return@withContext GitCommitDetailResult.Failure(
+                GitError(GitErrorKind.LINUX_MISSING, "Install the Linux environment first.")
+            )
+        }
+
+        val commit = loadCommit(projectPath, hash)
+            ?: return@withContext GitCommitDetailResult.Failure(
+                GitError(
+                    GitErrorKind.NOT_FOUND,
+                    "Commit ${hash.take(SHORT_HASH_LENGTH)} was not found."
+                )
+            )
+        val parent = commit.parents.firstOrNull()
+
+        val files = if (parent != null) {
+            runner.run(
+                projectPath = projectPath,
+                args = listOf("diff", "--name-status", "-z", parent, hash),
+                options = GitRunOptions(timeoutMs = HISTORY_TIMEOUT_MS)
+            )
+        } else {
+            runner.run(
+                projectPath = projectPath,
+                args = listOf(
+                    "diff-tree",
+                    "--root",
+                    "--no-commit-id",
+                    "--name-status",
+                    "-r",
+                    "-z",
+                    hash
+                ),
+                options = GitRunOptions(timeoutMs = HISTORY_TIMEOUT_MS)
+            )
+        }
+        if (!files.isSuccess) {
+            return@withContext GitCommitDetailResult.Failure(
+                errorFrom(files, "Could not load the files in this commit.")
+            )
+        }
+        val parsedFiles = GitNameStatusParser.parse(files.stdout, MAX_COMMIT_FILES)
+
+        val messageResult = runner.run(
+            projectPath = projectPath,
+            args = listOf("show", "-s", "--no-color", "--format=%B", hash),
+            options = GitRunOptions(timeoutMs = HISTORY_TIMEOUT_MS)
+        )
+        val message = if (messageResult.isSuccess) {
+            messageResult.stdout.trimEnd('\n', '\r')
+        } else {
+            commit.subject
+        }
+
+        val branchesResult = runner.run(
+            projectPath = projectPath,
+            args = listOf("branch", "--contains", hash, "--format=%(refname:short)"),
+            options = GitRunOptions(timeoutMs = HISTORY_TIMEOUT_MS)
+        )
+        val branches = if (branchesResult.isSuccess) {
+            branchesResult.stdout.lineSequence()
+                .map { it.trim() }
+                .filter { it.isNotEmpty() }
+                .toList()
+        } else {
+            emptyList()
+        }
+
+        GitCommitDetailResult.Success(
+            GitCommitDetail(
+                commit = commit,
+                message = message,
+                files = parsedFiles.files,
+                branches = branches,
+                compareParent = parent,
+                truncated = parsedFiles.truncated || files.stdoutTruncated
+            )
+        )
+    }
+
+    override suspend fun commitDiff(
+        projectId: Long,
+        hash: String,
+        path: String
+    ): GitDiffResult = withContext(Dispatchers.IO) {
+        val project = runCatching { projects.getProject(projectId) }.getOrNull()
+        val projectPath = project?.path
+        if (projectPath.isNullOrBlank()) {
+            return@withContext GitDiffResult.Failure(
+                GitError(GitErrorKind.INVALID_PROJECT, "The project folder is not available.")
+            )
+        }
+        if (!linuxInstalled()) {
+            return@withContext GitDiffResult.Failure(
+                GitError(GitErrorKind.LINUX_MISSING, "Install the Linux environment first.")
+            )
+        }
+        val commit = loadCommit(projectPath, hash)
+            ?: return@withContext GitDiffResult.Failure(
+                GitError(
+                    GitErrorKind.NOT_FOUND,
+                    "Commit ${hash.take(SHORT_HASH_LENGTH)} was not found."
+                )
+            )
+        val parent = commit.parents.firstOrNull()
+        val args = if (parent != null) {
+            listOf(
+                "diff",
+                "--no-color",
+                "--no-ext-diff",
+                "--unified=3",
+                parent,
+                hash,
+                "--",
+                path
+            )
+        } else {
+            listOf(
+                "show",
+                "--no-color",
+                "--format=",
+                "--unified=3",
+                hash,
+                "--",
+                path
+            )
+        }
+        val result = runner.run(
+            projectPath = projectPath,
+            args = args,
+            options = GitRunOptions(timeoutMs = DIFF_TIMEOUT_MS)
+        )
+        if (!result.isSuccess) {
+            return@withContext GitDiffResult.Failure(
+                errorFrom(result, "Could not load the commit diff.")
+            )
+        }
+        val parsed = GitDiffParser.parse(result.stdout, path)
+        GitDiffResult.Success(
+            parsed.copy(truncated = parsed.truncated || result.stdoutTruncated)
+        )
+    }
+
     override fun cancelOperation() {
         val job = synchronized(operationLock) { operationJob }
         job?.cancel()
@@ -588,6 +851,31 @@ class GitRepositoryImpl(
             args = listOf("rev-parse", "--verify", "--quiet", "HEAD"),
             options = GitRunOptions(timeoutMs = VALIDATION_TIMEOUT_MS)
         ).isSuccess
+
+    private suspend fun loadCommit(projectPath: String, hash: String): GitCommit? {
+        val result = runner.run(
+            projectPath = projectPath,
+            args = listOf(
+                "log", "-1",
+                "--no-color",
+                "--date=iso-strict",
+                "--pretty=format:$HISTORY_FORMAT",
+                hash
+            ),
+            options = GitRunOptions(timeoutMs = HISTORY_TIMEOUT_MS)
+        )
+        if (!result.isSuccess) return null
+        return GitLogParser.parseSingle(result.stdout)
+    }
+
+    private fun isUnbornRepository(result: GitCommandResult): Boolean {
+        val stderr = result.stderr
+        return stderr.contains("does not have any commits yet", ignoreCase = true) ||
+            stderr.contains(
+                "unknown revision or path not in the working tree",
+                ignoreCase = true
+            )
+    }
 
     private suspend fun unstageArgs(projectPath: String, path: String): List<String> =
         if (hasHeadCommit(projectPath)) {
@@ -954,6 +1242,11 @@ class GitRepositoryImpl(
         const val MUTATION_TIMEOUT_MS = 60_000L
         const val DIFF_TIMEOUT_MS = 60_000L
         const val MAX_UNTRACKED_DIFF_LINES = 5_000
+        const val HISTORY_TIMEOUT_MS = 60_000L
+        const val MAX_HISTORY_LIMIT = 1_000
+        const val MAX_COMMIT_FILES = 1_000
+        const val HISTORY_FORMAT =
+            "%H%x1f%h%x1f%an%x1f%ae%x1f%aI%x1f%s%x1f%D%x1f%P%x1e"
 
         val ANSI_ESCAPE = Regex("\u001B\\[[0-9;]*[A-Za-z]")
         val URL_CREDENTIALS = Regex("(https?://)[^/@\\s]+@")

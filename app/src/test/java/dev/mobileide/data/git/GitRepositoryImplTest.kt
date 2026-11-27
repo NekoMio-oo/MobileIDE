@@ -7,8 +7,10 @@ import dev.mobileide.data.local.ProjectEntity
 import dev.mobileide.data.repository.ProjectRepositoryImpl
 import dev.mobileide.domain.git.GitAvailability
 import dev.mobileide.domain.git.GitChangeKind
+import dev.mobileide.domain.git.GitCommitDetailResult
 import dev.mobileide.domain.git.GitDiffResult
 import dev.mobileide.domain.git.GitErrorKind
+import dev.mobileide.domain.git.GitHistoryResult
 import dev.mobileide.domain.git.GitInstallResult
 import dev.mobileide.domain.git.GitSnapshot
 import kotlinx.coroutines.CoroutineScope
@@ -27,6 +29,7 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Assume
 import org.junit.Before
@@ -311,6 +314,98 @@ class GitRepositoryImplTest {
         assertTrue((result as GitDiffResult.Success).diff.files.single().isBinary)
     }
 
+    @Test
+    fun `history is empty before the first commit`() = runBlocking {
+        initializeRepository()
+
+        val history = repository.history(projectId)
+
+        assertTrue(history is GitHistoryResult.Success)
+        assertTrue((history as GitHistoryResult.Success).commits.isEmpty())
+    }
+
+    @Test
+    fun `history and commit detail come from real git`() = runBlocking {
+        initializeRepository()
+        commitAll("initial")
+        repository.refresh(projectId)
+
+        val rootHistory = repository.history(projectId)
+        assertTrue(rootHistory is GitHistoryResult.Success)
+        val rootCommit = (rootHistory as GitHistoryResult.Success).commits.single()
+        assertEquals("initial", rootCommit.subject)
+        assertTrue(rootCommit.parents.isEmpty())
+
+        val rootDetail = repository.commitDetail(projectId, rootCommit.hash)
+        assertTrue(rootDetail is GitCommitDetailResult.Success)
+        val detail = (rootDetail as GitCommitDetailResult.Success).detail
+        assertEquals("initial", detail.commit.subject)
+        assertEquals("initial", detail.message)
+        assertTrue(
+            detail.files.any { it.path == "README.md" && it.change == GitChangeKind.ADDED }
+        )
+        assertTrue(detail.branches.contains("main"))
+        assertNull(detail.compareParent)
+
+        val rootDiff = repository.commitDiff(projectId, rootCommit.hash, "README.md")
+        assertTrue(rootDiff is GitDiffResult.Success)
+        assertTrue((rootDiff as GitDiffResult.Success).diff.addedLines > 0)
+
+        File(projectDir, "README.md").appendText("more\n")
+        commitAll("second")
+        repository.refresh(projectId)
+        val history = repository.history(projectId)
+        val commits = (history as GitHistoryResult.Success).commits
+        assertEquals("second", commits.first().subject)
+
+        val secondDetail = repository.commitDetail(projectId, commits.first().hash)
+        assertTrue(secondDetail is GitCommitDetailResult.Success)
+        val second = (secondDetail as GitCommitDetailResult.Success).detail
+        assertTrue(
+            second.files.any {
+                it.path == "README.md" && it.change == GitChangeKind.MODIFIED
+            }
+        )
+        assertNotNull(second.compareParent)
+    }
+
+    @Test
+    fun `commits staged changes through the repository`() = runBlocking {
+        initializeRepository()
+        commitAll("initial")
+        repository.refresh(projectId)
+        File(projectDir, "notes.txt").writeText("note\n")
+        repository.refresh(projectId)
+
+        repository.stage(projectId, "notes.txt")
+        awaitStatus {
+            it.status?.staged?.any { change -> change.path == "notes.txt" } == true
+        }
+
+        repository.commit(projectId, "add notes")
+
+        awaitStatus {
+            !it.isBusy && it.status?.staged?.isEmpty() == true
+        }
+        val history = repository.history(projectId)
+        val commits = (history as GitHistoryResult.Success).commits
+        assertEquals("add notes", commits.first().subject)
+
+        repository.clearError(projectId)
+        repository.commit(projectId, "again")
+        assertEquals(
+            "No staged changes to commit.",
+            repository.observe(projectId).value.error?.message
+        )
+
+        repository.clearError(projectId)
+        repository.commit(projectId, "   ")
+        assertEquals(
+            "Enter a commit message.",
+            repository.observe(projectId).value.error?.message
+        )
+    }
+
     private suspend fun initializeRepository() {
         repository.initRepository(projectId, "main")
         withTimeout(20_000) {
@@ -318,6 +413,17 @@ class GitRepositoryImplTest {
                 it.availability == GitAvailability.READY && !it.isBusy
             }
         }
+        val runner = LocalGitRunner()
+        runner.run(
+            projectPath = projectDir.absolutePath,
+            args = listOf("config", "user.name", "MobileIDE Test"),
+            options = GitRunOptions(readOnly = false)
+        )
+        runner.run(
+            projectPath = projectDir.absolutePath,
+            args = listOf("config", "user.email", "test@example.com"),
+            options = GitRunOptions(readOnly = false)
+        )
     }
 
     private suspend fun awaitStatus(predicate: (GitSnapshot) -> Boolean): GitSnapshot =

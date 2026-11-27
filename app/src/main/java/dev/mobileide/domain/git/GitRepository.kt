@@ -63,9 +63,30 @@ interface GitRepository {
         staged: Boolean
     ): GitDiffResult
 
+    // ---- commits ----------------------------------------------------------
+
+    /** Commits staged changes. An empty message or an empty index is rejected. */
+    fun commit(projectId: Long, message: String)
+
+    /** Latest commits, newest first, capped by [limit]. */
+    suspend fun history(projectId: Long, limit: Int = DEFAULT_HISTORY_LIMIT): GitHistoryResult
+
+    suspend fun commitDetail(projectId: Long, hash: String): GitCommitDetailResult
+
+    /** Diff of one file in a commit; compared with the first parent. */
+    suspend fun commitDiff(
+        projectId: Long,
+        hash: String,
+        path: String
+    ): GitDiffResult
+
     fun cancelOperation()
 
     fun clearMessage(projectId: Long)
 
     fun clearError(projectId: Long)
+
+    companion object {
+        const val DEFAULT_HISTORY_LIMIT = 200
+    }
 }
