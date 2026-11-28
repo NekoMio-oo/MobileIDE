@@ -1,9 +1,32 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
     id("com.google.devtools.ksp")
 }
+
+// Release signing: environment variables take precedence, then an untracked
+// keystore.properties at the repository root. Never commit the keystore or the
+// password file; see BUILD.md and RELEASE.md.
+val keystoreProperties = Properties().apply {
+    val file = rootProject.file("keystore.properties")
+    if (file.isFile) file.inputStream().use { load(it) }
+}
+
+fun signingValue(property: String, env: String): String? =
+    (keystoreProperties.getProperty(property) ?: System.getenv(env))?.takeIf { it.isNotBlank() }
+
+val releaseStoreFilePath = signingValue("storeFile", "MOBILEIDE_KEYSTORE_FILE")
+val releaseStorePassword = signingValue("storePassword", "MOBILEIDE_KEYSTORE_PASSWORD")
+val releaseKeyAlias = signingValue("keyAlias", "MOBILEIDE_KEY_ALIAS")
+val releaseKeyPassword =
+    signingValue("keyPassword", "MOBILEIDE_KEY_PASSWORD") ?: releaseStorePassword
+val hasReleaseSigning = releaseStoreFilePath != null &&
+    releaseStorePassword != null &&
+    releaseKeyAlias != null &&
+    releaseKeyPassword != null
 
 android {
     namespace = "dev.mobileide"
@@ -20,7 +43,7 @@ android {
         // distributed via GitHub, not Google Play.
         targetSdk = 28
         versionCode = 1
-        versionName = "0.1.0"
+        versionName = "1.0.0"
 
         ndk {
             abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64")
@@ -38,13 +61,31 @@ android {
         }
     }
 
+    signingConfigs {
+        if (hasReleaseSigning) {
+            create("release") {
+                val storePath = releaseStoreFilePath!!
+                storeFile = rootProject.file(storePath)
+                storePassword = releaseStorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
+            }
+        }
+    }
+
     buildTypes {
         release {
+            // R8 stays off: the app has not been exercised on a physical device
+            // yet, and unverifiable shrinking is riskier than a slightly larger
+            // APK. Revisit after device testing.
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            if (hasReleaseSigning) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
     }
 
@@ -114,7 +155,7 @@ dependencies {
     implementation("io.github.Rosemoe.sora-editor:editor:0.23.5")
     implementation("io.github.Rosemoe.sora-editor:language-java:0.23.5")
 
-    // XZ decoding for .deb and Debian rootfs archives (pure Java, public domain).
+    // XZ decoding for .deb and Debian rootfs archives (pure Java, 0BSD).
     implementation("org.tukaani:xz:1.10")
     // Tar/zip/ar parsing for rootfs, .deb and package archives.
     implementation("org.apache.commons:commons-compress:1.26.2")

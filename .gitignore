@@ -11,7 +11,14 @@ captures/
 *.apk
 *.aab
 *.keystore
+*.jks
+*.p12
+# Release signing config and passwords must stay out of the repository.
+keystore.properties
 !debug.keystore
+
+# Locally produced release artifacts (build/copy them with BUILD.md).
+/dist/
 
 # Kotlin compiler session state
 .kotlin/

@@ -9,7 +9,7 @@
     </queries>
 
     <!-- SAF needs no permission. This is only for the optional "All files access"
-         mode, which writes project folders directly under Documents/MobileIDE. -->
+         mode, which writes project folders directly under AndroidProjects/. -->
     <uses-permission
         android:name="android.permission.WRITE_EXTERNAL_STORAGE"
         android:maxSdkVersion="29" />
